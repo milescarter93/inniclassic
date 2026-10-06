@@ -336,5 +336,12 @@
   "Move Down": "Bajar",
   "Remove from Queue": "Quitar de la cola",
   "Removed from the queue.": "Quitada de la cola.",
-  "and %d more": "y %d más"
+  "and %d more": "y %d más",
+  "Add to Queue": "Añadir a la cola",
+  "Will play next.": "Sonará a continuación.",
+  "Added to the end of the queue.": "Añadida al final de la cola.",
+  "Search": "Buscar",
+  "Enter search term...": "Escribe lo que buscas...",
+  "Add to Playlist": "Añadir a una lista",
+  "Jump to Letter": "Ir a una letra"
 }

@@ -4437,7 +4437,14 @@ public class MainActivity extends Activity {
             title = t("Settings");
         } else if (currentScreenState == STATE_BLUETOOTH) {
             title = t("Bluetooth");
-        } else if (currentScreenState == STATE_WIFI || currentScreenState == STATE_WIFI_KEYBOARD) {
+        } else if (currentScreenState == STATE_WIFI_KEYBOARD) {
+            // The wheel keyboard started as the Wi-Fi password screen but is shared by several features;
+            // title it after what it's being used for.
+            if (currentKeyboardMode == 4) title = t("Search");
+            else if (currentKeyboardMode == 1) title = t("Search Podcast");
+            else if (currentKeyboardMode == 2 || currentKeyboardMode == 3) title = "Last.fm";
+            else title = t("Wi-Fi");
+        } else if (currentScreenState == STATE_WIFI) {
             title = t("Wi-Fi");
         } else if (currentScreenState == STATE_MUSIC_QUIZ) {
             title = t("Music Quiz");
@@ -5462,8 +5469,12 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Text to put back in the keyboard the next time it opens (going back from search results), or null.
+    private String keyboardPrefill = null;
+
     private void openKeyboard() {
-        typedPassword = "";
+        typedPassword = keyboardPrefill != null ? keyboardPrefill : "";
+        keyboardPrefill = null;
         keyboardIndex = 0;
         // 🚀 모드에 따라 상단 제목 다르게 표시!
         if (currentKeyboardMode == 1) {
@@ -5543,8 +5554,7 @@ public class MainActivity extends Activity {
                 virtualQueryType = "SEARCH";
                 virtualQueryValue = typedPassword.trim();
                 currentKeyboardMode = 0;
-                changeScreen(STATE_BROWSER);
-                buildVirtualSongs();
+                changeScreen(STATE_BROWSER); // builds the results list (calling buildVirtualSongs() again built it twice)
             } else if (currentKeyboardMode == 2) {
                 if (typedPassword.trim().isEmpty()) {
                     Toast.makeText(this, t("Please enter a username."), Toast.LENGTH_SHORT).show();
@@ -10195,6 +10205,9 @@ public class MainActivity extends Activity {
 
         // 🚀 [핵심 방어막] 현재 오디오북 모드 스위치 상태에 따라 뒤질 바구니를 명확히 고정합니다!
         List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
+        final long buildStarted = System.currentTimeMillis();
+        // 🚀 [Search] Fold the query once, not once per song.
+        final String searchQuery = "SEARCH".equals(virtualQueryType) ? searchFold(virtualQueryValue) : "";
 
         for (SongItem song : activeLibrary) {
             // 🚀 [대개조 완료] 가상 분류를 긁어올 때, 현재 노래 파일이 실제로 소속된 루트 폴더까지 2중으로 철저히 검사합니다!
@@ -10226,11 +10239,12 @@ public class MainActivity extends Activity {
                 // 💡 방어막을 통과한(isRecentPassed == true) 신선한 곡들만 바구니에 담습니다.
                 boolean isSearchMatch = false;
                 if (virtualQueryType.equals("SEARCH")) {
-                    String q = virtualQueryValue == null ? "" : virtualQueryValue.toLowerCase();
-                    isSearchMatch = !q.isEmpty() && (
-                            (song.title != null && song.title.toLowerCase().contains(q)) ||
-                            (song.artist != null && song.artist.toLowerCase().contains(q)) ||
-                            (song.album != null && song.album.toLowerCase().contains(q)));
+                    // 🚀 [Search] Accent-insensitive: the wheel keyboard has no accented letters, so "corazon"
+                    // has to find "Corazón".
+                    isSearchMatch = !searchQuery.isEmpty() && (
+                            searchFold(song.title).contains(searchQuery) ||
+                            searchFold(song.artist).contains(searchQuery) ||
+                            searchFold(song.album).contains(searchQuery));
                 }
 
                 if (isRecentPassed && (virtualQueryType.equals("ALL") || virtualQueryType.equals("RECENT") ||
@@ -10296,6 +10310,8 @@ public class MainActivity extends Activity {
         // =======================================================
         SongListAdapter adapter = new SongListAdapter(displaySongs);
         listVirtualSongs.setAdapter(adapter);
+        android.util.Log.i("Y1Search", virtualQueryType + " list built in " + (System.currentTimeMillis() - buildStarted)
+                + " ms: " + displaySongs.size() + " songs");
 
         // 🚀 [스마트 포커스] 현재 재생 중인 곡이 리스트에 있다면 그 인덱스를 찾아냅니다!
         int targetIndex = -1;
@@ -12781,6 +12797,13 @@ public class MainActivity extends Activity {
                             if (virtualQueryType.equals("COVER_FLOW_ALBUM")) {
                                 currentBrowserMode = BROWSER_COVER_FLOW;
                                 buildCoverFlowUI();
+                            } else if (virtualQueryType.equals("SEARCH")) {
+                                // 🚀 [Search] Back from results goes back to the search keyboard with the text
+                                // still typed, so it can be refined. (It used to fall into the album branch below
+                                // and show an "Unknown" category list, then Albums.)
+                                currentKeyboardMode = 4;
+                                keyboardPrefill = virtualQueryValue;
+                                changeScreen(STATE_WIFI_KEYBOARD);
                             } else {
                                 currentBrowserMode = virtualQueryType.equals("ALL") ? BROWSER_ROOT
                                         : (virtualQueryType.equals("ARTIST") ? BROWSER_ARTISTS : BROWSER_ALBUMS);
@@ -13487,6 +13510,11 @@ public class MainActivity extends Activity {
 
                     if (currentScreenState == STATE_PLAYER && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
                         showNowPlayingContextMenu(currentPlaylist.get(currentIndex));
+                    } else if (currentScreenState == STATE_BROWSER && getFocusedSongInList() != null
+                            && (hzIndexScroll == null || hzIndexScroll.getVisibility() != View.VISIBLE)) {
+                        // 🚀 [Song menu] On a song, hold Play/Pause opens its menu (queue, playlists, search -
+                        // "Jump to Letter" there opens the alphabet this gesture used to toggle directly).
+                        showSongMenu(getFocusedSongInList().file);
                     } else if (currentScreenState == STATE_BROWSER && hzIndexScroll != null) {
                         if (currentScrollIndexList != null && !currentScrollIndexList.isEmpty()) {
                             // 💡 [핵심 수정] 이미 떠 있으면 숨기고, 안 떠 있으면 켭니다!
@@ -16098,6 +16126,97 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             showUpNextDialog(queueIndex);
         });
+
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
+            }
+        }, 50);
+    }
+
+    private static final java.util.regex.Pattern COMBINING_MARKS = java.util.regex.Pattern.compile("\\p{M}+");
+
+    // Lower-cased text with accents removed ("Canción" -> "cancion"), for search comparisons. Called for
+    // three fields of every song on each search, so plain-ASCII text (most titles) skips the normalizer.
+    private static String searchFold(String s) {
+        if (s == null) return "";
+        String lower = s.toLowerCase(Locale.ROOT);
+        for (int i = 0; i < lower.length(); i++) {
+            if (lower.charAt(i) > 0x7F) {
+                return COMBINING_MARKS.matcher(
+                        java.text.Normalizer.normalize(lower, java.text.Normalizer.Form.NFD)).replaceAll("");
+            }
+        }
+        return lower;
+    }
+
+    // 🚀 [Song menu] The song the cursor is on in a song list, or null (other screens, the "Shuffle" row,
+    // podcast episodes and other entries that aren't files on the card).
+    private SongItem getFocusedSongInList() {
+        try {
+            if (listVirtualSongs == null || listVirtualSongs.getVisibility() != View.VISIBLE
+                    || listVirtualSongs.getAdapter() == null)
+                return null;
+            View focused = listVirtualSongs.getFocusedChild();
+            if (focused == null) return null;
+            int pos = listVirtualSongs.getPositionForView(focused);
+            if (pos == android.widget.AdapterView.INVALID_POSITION) return null;
+            Object item = listVirtualSongs.getAdapter().getItem(pos);
+            if (!(item instanceof SongItem)) return null;
+            SongItem song = (SongItem) item;
+            return (song.file != null && song.file.isFile()) ? song : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // 🚀 [Song menu] Hold Play/Pause on a song in a list: queue it, add it to a playlist, or search.
+    // (The list rows' own long-click menu needs a touch screen, which the Y1 doesn't have.)
+    private void showSongMenu(final File songFile) {
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
+        final com.themoon.y1.managers.AudioPlayerManager apm = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+
+        if (!currentPlaylist.isEmpty()) {
+            addQueueMenuRow(layout, wheel, t("Play Next"), v -> {
+                dialog.dismiss();
+                if (apm.addToQueue(songFile, true))
+                    Toast.makeText(MainActivity.this, t("Will play next."), Toast.LENGTH_SHORT).show();
+            });
+            addQueueMenuRow(layout, wheel, t("Add to Queue"), v -> {
+                dialog.dismiss();
+                if (apm.addToQueue(songFile, false))
+                    Toast.makeText(MainActivity.this, t("Added to the end of the queue."), Toast.LENGTH_SHORT).show();
+            });
+        }
+        addQueueMenuRow(layout, wheel, t("Add to Playlist"), v -> {
+            dialog.dismiss();
+            showAddToPlaylistDialog(songFile);
+        });
+        if (hzIndexScroll != null && currentScrollIndexList != null && !currentScrollIndexList.isEmpty()) {
+            addQueueMenuRow(layout, wheel, t("Jump to Letter"), v -> {
+                dialog.dismiss();
+                hzIndexScroll.setVisibility(View.VISIBLE);
+                if (layoutIndexContainer != null && layoutIndexContainer.getChildCount() > 0)
+                    layoutIndexContainer.getChildAt(0).requestFocus();
+            });
+        }
+        addQueueMenuRow(layout, wheel, t("Search"), v -> {
+            dialog.dismiss();
+            currentKeyboardMode = 4;
+            changeScreen(STATE_WIFI_KEYBOARD);
+        });
+        addQueueMenuRow(layout, wheel, t("Cancel"), v -> dialog.dismiss());
 
         dialog.show();
         layout.postDelayed(new Runnable() {

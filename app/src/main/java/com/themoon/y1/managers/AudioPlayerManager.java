@@ -685,6 +685,22 @@ public class AudioPlayerManager {
         return moveInQueue(index, target);
     }
 
+    // Adds a file to the playing queue, right after the current track (next = true) or at the end, without
+    // interrupting playback. Returns false if there's no queue to add to.
+    public boolean addToQueue(File file, boolean next) {
+        MainActivity main = MainActivity.instance;
+        if (main == null || main.currentPlaylist.isEmpty() || file == null || !file.exists()) return false;
+        int pos = next ? main.currentIndex + 1 : main.currentPlaylist.size();
+        main.currentPlaylist.add(pos, file);
+        // Keep it in the unshuffled order too, so turning shuffle off doesn't drop it.
+        main.originalPlaylist.add(file);
+        if (isGaplessQueueActive && exoPlayer != null && pos <= exoPlayer.getMediaItemCount()) {
+            exoPlayer.addMediaItem(pos, MediaItem.fromUri(Uri.fromFile(file)));
+        }
+        afterQueueEdit(main);
+        return true;
+    }
+
     // Call after the queue order changed in any way (queue edits, shuffle on/off).
     public void afterQueueEdit(MainActivity main) {
         // With shuffle off the play order is the "original" order, so keep the user's edits in it.
