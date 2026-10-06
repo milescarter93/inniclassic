@@ -65,6 +65,10 @@ public class CategoryListAdapter extends BaseAdapter {
         }
     }
 
+    public static void clearCoverCache() {
+        if (coverCache != null) coverCache.evictAll();
+    }
+
     @Override
     public int getCount() { return items.size(); }
 
@@ -291,10 +295,16 @@ public class CategoryListAdapter extends BaseAdapter {
     // 🚀 [ANR 수리 3] 실제 검색+디코딩을 백그라운드 스레드에서 수행하고, 끝나면 메인 스레드에서 그 행이
     // (재활용되어 다른 앨범으로 바뀌지 않고) 여전히 같은 앨범을 보여주고 있을 때만 이미지를 반영합니다.
     private void loadAlbumArtAsync(final String name, final int coverSize, final ImageView targetView) {
-        new Thread(new Runnable() {
+        // 🚀 [Cover thumbnails] Shared 2-thread pool instead of a new thread per row while scrolling.
+        com.themoon.y1.managers.ThumbnailCache.execute(new Runnable() {
             @Override
             public void run() {
+                // Scrolled past and the row now shows another album: skip the work entirely.
+                if (!name.equals(targetView.getTag())) return;
+                long started = System.currentTimeMillis();
                 final Drawable result = fetchAlbumArtDrawable(name, coverSize);
+                android.util.Log.d("Y1Thumbs", "album cover (" + lastCoverSource.get() + ") in "
+                        + (System.currentTimeMillis() - started) + " ms: " + name);
                 if (result != null) {
                     coverCache.put(name, result);
                 }
@@ -307,7 +317,7 @@ public class CategoryListAdapter extends BaseAdapter {
                     }
                 });
             }
-        }).start();
+        });
     }
 
     // 🚀 기존 동기 로직을 그대로 옮긴 것 - 순서(내려받은 커버 -> 수동 커버 폴더 -> 폴더 커버 -> 내장 아트 ->
@@ -317,6 +327,22 @@ public class CategoryListAdapter extends BaseAdapter {
         byte[] embeddedPic = null;
 
         List<File> albumFiles = albumFilesMap != null ? albumFilesMap.get(name) : null;
+
+        // 🚀 [Cover thumbnails] Try the disk cache first: a hit is one small JPEG decode instead of opening
+        // the album's tracks and decoding a full-size embedded picture.
+        final String thumbKey = "album:" + name;
+        final long stamp = albumArtStamp(albumFiles);
+        Bitmap cachedThumb = com.themoon.y1.managers.ThumbnailCache.load(thumbKey, coverSize, stamp);
+        if (cachedThumb != null) {
+            lastCoverSource.set("disk cache");
+            return new BitmapDrawable(MainActivity.instance.getResources(), cachedThumb);
+        }
+        if (com.themoon.y1.managers.ThumbnailCache.isKnownMissing(thumbKey, coverSize, stamp)) {
+            lastCoverSource.set("known missing");
+            return defaultCoverDrawable(coverSize);
+        }
+        lastCoverSource.set("extracted");
+
         if (albumFiles != null) {
             for (File file : albumFiles) {
                 String trackPath = file.getAbsolutePath();
@@ -339,7 +365,7 @@ public class CategoryListAdapter extends BaseAdapter {
                 }
 
                 // 🚀 Now Playing 화면과 동일하게, 앨범 폴더 안의 cover.jpg/folder.jpg도 찾아봅니다!
-                File folderCover = MainActivity.instance.findFolderCover(file.getParentFile());
+                File folderCover = com.themoon.y1.managers.ThumbnailCache.folderCover(file.getParentFile(), MainActivity.instance);
                 if (folderCover != null) {
                     artPath = folderCover.getAbsolutePath();
                     break;
@@ -395,30 +421,70 @@ public class CategoryListAdapter extends BaseAdapter {
         Bitmap bmp = null;
 
         // [선택 1] 인터넷 다운로드 커버가 있으면 최우선 로딩
+        // (Downsampled to the row's size up front - a fixed inSampleSize of 4 still decoded a 3000 px
+        // cover at 750 px, and could run out of memory.)
         if (!artPath.isEmpty()) {
-            try {
-                BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inSampleSize = 4;
-                bmp = BitmapFactory.decodeFile(artPath, opts);
-            } catch (Exception e) {}
+            bmp = com.themoon.y1.managers.ThumbnailCache.decodeSampled(artPath, coverSize);
         }
         // [선택 2] 인터넷 커버가 없으면 파일 내장 아트 로딩
         else if (embeddedPic != null) {
-            try {
-                BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inSampleSize = 4;
-                bmp = BitmapFactory.decodeByteArray(embeddedPic, 0, embeddedPic.length, opts);
-            } catch (Exception e) {}
+            bmp = com.themoon.y1.managers.ThumbnailCache.decodeSampled(embeddedPic, coverSize);
         }
 
-        // [선택 3] 둘 다 없으면 기본 이미지
+        // [선택 3] 둘 다 없으면 기본 이미지 (remembered on disk, so the tracks aren't opened again next time)
         if (bmp == null) {
-            bmp = BitmapFactory.decodeResource(MainActivity.instance.getResources(), R.drawable.default_album);
+            com.themoon.y1.managers.ThumbnailCache.saveMissing(thumbKey, coverSize, stamp);
+            return defaultCoverDrawable(coverSize);
         }
 
-        if (bmp == null) return null;
         Bitmap scaled = Bitmap.createScaledBitmap(bmp, coverSize, coverSize, true);
+        com.themoon.y1.managers.ThumbnailCache.save(thumbKey, coverSize, stamp, scaled);
         return new BitmapDrawable(MainActivity.instance.getResources(), scaled);
+    }
+
+    // Source stamp for an album cover: the modification times of everything its cover could come from
+    // (the tracks, a downloaded cover, a Y1_Covers file, the folder's cover.jpg), so the cached thumbnail
+    // is rebuilt when any of them changes. Only file stats - no tag reading.
+    private long albumArtStamp(List<File> albumFiles) {
+        long stamp = 0;
+        if (albumFiles == null) return stamp;
+        for (File file : albumFiles) {
+            stamp = com.themoon.y1.managers.ThumbnailCache.mixStamp(stamp, file);
+            if (MainActivity.instance.prefs != null) {
+                String savedPath = MainActivity.instance.prefs.getString("album_art_" + file.getAbsolutePath(), "");
+                if (!savedPath.isEmpty())
+                    stamp = com.themoon.y1.managers.ThumbnailCache.mixStamp(stamp, new File(savedPath));
+            }
+            String safeFileName = file.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "")
+                    .replace(".m4a", "").replace(".aac", "").replace(".ogg", "");
+            stamp = com.themoon.y1.managers.ThumbnailCache.mixStamp(stamp,
+                    new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg"));
+            stamp = com.themoon.y1.managers.ThumbnailCache.mixStamp(stamp,
+                    com.themoon.y1.managers.ThumbnailCache.folderCover(file.getParentFile(), MainActivity.instance));
+        }
+        return stamp;
+    }
+
+    // Where the last cover fetched on this thread came from, for the Y1Thumbs debug log.
+    private static final ThreadLocal<String> lastCoverSource = new ThreadLocal<>();
+
+    // The placeholder cover bitmap, scaled once per size and shared by every album without art (each row
+    // still gets its own Drawable - a Drawable instance shouldn't be shared between views).
+    private static Bitmap defaultCover;
+    private static int defaultCoverSize = -1;
+
+    private static synchronized Drawable defaultCoverDrawable(int coverSize) {
+        if (defaultCover == null || defaultCoverSize != coverSize) {
+            try {
+                Bitmap bmp = BitmapFactory.decodeResource(MainActivity.instance.getResources(), R.drawable.default_album);
+                if (bmp == null) return null;
+                defaultCover = Bitmap.createScaledBitmap(bmp, coverSize, coverSize, true);
+                defaultCoverSize = coverSize;
+            } catch (Exception | OutOfMemoryError e) {
+                return null;
+            }
+        }
+        return new BitmapDrawable(MainActivity.instance.getResources(), defaultCover);
     }
 
     // 🚀 아티스트 등 그 외 카테고리는 실제 아이팟처럼 촘촘한 한 줄 + 포커스일 때만 뜨는 우측 화살표로 표시

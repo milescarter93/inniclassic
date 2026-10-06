@@ -6562,6 +6562,12 @@ public class MainActivity extends Activity {
                                     }
                                     editor.commit(); // 변경사항 영구 저장!
 
+                                    // 🚀 [Cover thumbnails] Cached thumbnails too, on disk and in memory.
+                                    com.themoon.y1.managers.ThumbnailCache.clear();
+                                    com.themoon.y1.adapters.CategoryListAdapter.clearCoverCache();
+                                    if (albumArtCache != null)
+                                        albumArtCache.evictAll();
+
                                     Toast.makeText(MainActivity.this,
                                             "Deleted " + count + " covers & cleared track info.",
                                             Toast.LENGTH_SHORT).show();
@@ -9569,14 +9575,41 @@ public class MainActivity extends Activity {
         }
 
         // 3. 백그라운드 로딩 엔진 발사
-        new Thread(new Runnable() {
+        // 🚀 [Cover thumbnails] Shared thread pool + disk cache; covers are decoded downsampled to
+        // COVER_FLOW_ART_SIZE (they used to be decoded at full size, which could run out of memory).
+        com.themoon.y1.managers.ThumbnailCache.execute(new Runnable() {
             @Override
             public void run() {
+                if (!path.equals(ivCover.getTag())) return; // wheel already moved past this card
                 Bitmap bmp = null;
                 String cachedArtPath = prefs.getString("album_art_" + path, null);
 
-                if (cachedArtPath != null && new File(cachedArtPath).exists()) {
-                    bmp = BitmapFactory.decodeFile(cachedArtPath);
+                String songBaseName = item.file.getName();
+                int baseDot = songBaseName.lastIndexOf(".");
+                if (baseDot > 0)
+                    songBaseName = songBaseName.substring(0, baseDot);
+                final String thumbKey = "coverflow:" + path;
+                long stamp = com.themoon.y1.managers.ThumbnailCache.mixStamp(0, item.file);
+                if (cachedArtPath != null)
+                    stamp = com.themoon.y1.managers.ThumbnailCache.mixStamp(stamp, new File(cachedArtPath));
+                stamp = com.themoon.y1.managers.ThumbnailCache.mixStamp(stamp,
+                        new File("/storage/sdcard0/Y1_Covers", songBaseName + ".jpg"));
+                stamp = com.themoon.y1.managers.ThumbnailCache.mixStamp(stamp,
+                        com.themoon.y1.managers.ThumbnailCache.folderCover(item.file.getParentFile(), MainActivity.this));
+                final long thumbStamp = stamp;
+                boolean fromDiskCache = false;
+                boolean knownMissing = com.themoon.y1.managers.ThumbnailCache.isKnownMissing(thumbKey,
+                        COVER_FLOW_ART_SIZE, thumbStamp);
+
+                Bitmap diskThumb = knownMissing ? null
+                        : com.themoon.y1.managers.ThumbnailCache.load(thumbKey, COVER_FLOW_ART_SIZE, thumbStamp);
+                if (diskThumb != null) {
+                    bmp = diskThumb;
+                    fromDiskCache = true;
+                } else if (knownMissing) {
+                    // no cover anywhere last time and nothing changed since: skip the lookup
+                } else if (cachedArtPath != null && new File(cachedArtPath).exists()) {
+                    bmp = com.themoon.y1.managers.ThumbnailCache.decodeSampled(cachedArtPath, COVER_FLOW_ART_SIZE);
                 } else {
                     try {
                         String songName = item.file.getName();
@@ -9587,19 +9620,22 @@ public class MainActivity extends Activity {
                         // 1순위: Y1_Covers 전용 폴더 검색
                         File fallbackFile = new File("/storage/sdcard0/Y1_Covers", songName + ".jpg");
                         if (fallbackFile.exists()) {
-                            bmp = BitmapFactory.decodeFile(fallbackFile.getAbsolutePath());
+                            bmp = com.themoon.y1.managers.ThumbnailCache.decodeSampled(
+                                    fallbackFile.getAbsolutePath(), COVER_FLOW_ART_SIZE);
                         } else {
                             // 🚀 [신규 장착!] 2순위: 혹시 같은 폴더 안에 cover.jpg 가 있는지 탐색기 가동!
-                            File folderCover = findFolderCover(item.file.getParentFile());
+                            File folderCover = com.themoon.y1.managers.ThumbnailCache.folderCover(
+                                    item.file.getParentFile(), MainActivity.this);
                             if (folderCover != null) {
-                                bmp = BitmapFactory.decodeFile(folderCover.getAbsolutePath());
+                                bmp = com.themoon.y1.managers.ThumbnailCache.decodeSampled(
+                                        folderCover.getAbsolutePath(), COVER_FLOW_ART_SIZE);
                             }
                         }
                     } catch (Exception e) {
                     }
                 }
 
-                if (bmp == null) {
+                if (bmp == null && !knownMissing) {
                     try {
                         byte[] embeddedArt = null;
 
@@ -9624,12 +9660,17 @@ public class MainActivity extends Activity {
 
                         // 🚀 빼온 사진 데이터(Byte)를 예쁜 비트맵(Bitmap)으로 구워냅니다.
                         if (embeddedArt != null) {
-                            BitmapFactory.Options opts = new BitmapFactory.Options();
-                            opts.inSampleSize = 2;
-                            bmp = BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.length, opts);
+                            bmp = com.themoon.y1.managers.ThumbnailCache.decodeSampled(embeddedArt, COVER_FLOW_ART_SIZE);
                         }
                     } catch (Exception e) {
                     }
+                }
+
+                if (!fromDiskCache) {
+                    if (bmp != null)
+                        com.themoon.y1.managers.ThumbnailCache.save(thumbKey, COVER_FLOW_ART_SIZE, thumbStamp, bmp);
+                    else if (!knownMissing)
+                        com.themoon.y1.managers.ThumbnailCache.saveMissing(thumbKey, COVER_FLOW_ART_SIZE, thumbStamp);
                 }
 
                 final Bitmap finalBmp = bmp;
@@ -9665,8 +9706,12 @@ public class MainActivity extends Activity {
                     }
                 });
             }
-        }).start();
+        });
     }
+
+    // Cover Flow cards are decoded to (at least) this many pixels per side - big enough for the centre
+    // card, far smaller than the 1000+ px covers embedded in many files.
+    private static final int COVER_FLOW_ART_SIZE = 400;
 
     // 🚀 [버그 완전 처치 & 비율 최적화] 커버 이미지 잘림을 막으면서도 전체를 위로 올리고, 텍스트 가독성을 극대화합니다!
     private View createSingleCoverView() {
