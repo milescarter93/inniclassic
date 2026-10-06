@@ -398,6 +398,11 @@ public class MainActivity extends Activity {
     private int totalAudioFiles = 0;
     private int scannedAudioFiles = 0;
     private int taggedAudioFiles = 0; // files whose tags were actually read in the current scan (new or changed)
+    // 🚀 [Background scan] True only while a scan runs with an empty library (first scan, lost cache): then
+    // there's nothing to browse yet and the full-screen loading popup is shown. A scan of a library that
+    // already has songs runs in the background and shows its progress in the status bar instead.
+    private volatile boolean isBlockingLibraryScan = false;
+    private volatile int scanProgressPercent = -1; // -1 = no background scan progress to show
     // 💡 [초고속 엔진] 수천 곡을 버티기 위한 재활용 리스트뷰와 기존 스크롤뷰
     private ListView listVirtualSongs;
     private View scrollViewBrowser;
@@ -444,14 +449,15 @@ public class MainActivity extends Activity {
     private int lastRadioFocusIndex = 1;
     // (볼륨 전용 변수와 복잡한 포커스 인덱스는 이제 필요 없으므로 과감히 삭제!)
     private boolean isCustomScanning = false;
-    public static java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
+    // Concurrent: the library scan thread writes it while the UI reads it (track sorting) during a background scan.
+    public static java.util.concurrent.ConcurrentHashMap<String, Integer> trackNumberMap = new java.util.concurrent.ConcurrentHashMap<>();
     // 🚀 [Incremental scan] Every tagged file, including duplicates that filterDuplicateSongs() hides from
     // customLibrary/audiobookLibrary. This is what the library cache stores, so hidden duplicates aren't
     // re-tagged on every scan; the visible lists are rebuilt from it with refreshVisibleLibrary().
     public static List<SongItem> customLibraryAll = new ArrayList<>();
     public static List<SongItem> audiobookLibraryAll = new ArrayList<>();
     // path -> {lastModified, length} at the time the file was tagged; a mismatch means it changed.
-    public static java.util.HashMap<String, long[]> fileStampMap = new java.util.HashMap<>();
+    public static java.util.concurrent.ConcurrentHashMap<String, long[]> fileStampMap = new java.util.concurrent.ConcurrentHashMap<>();
     private int currentScreenState = STATE_MENU;
     // 💡 자체 날짜/시간 설정용 임시 변수
     private int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
@@ -2385,7 +2391,7 @@ public class MainActivity extends Activity {
                     startMediaLibraryScan();
                 }
                 changeScreen(STATE_BROWSER);
-                if (isCustomScanning) {
+                if (isBlockingLibraryScan) {
                     showLoadingPopup();
                 }
             }
@@ -2631,6 +2637,7 @@ public class MainActivity extends Activity {
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
+                                    showScanProgressInStatusBar(progress);
                                     if (pbLoadingProgress != null)
                                         pbLoadingProgress.setProgress(progress);
                                     if (tvLoadingProgress != null) {
@@ -2851,6 +2858,7 @@ public class MainActivity extends Activity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
+                                showScanProgressInStatusBar(progress);
                                 if (pbLoadingProgress != null)
                                     pbLoadingProgress.setProgress(progress);
                                 if (tvLoadingProgress != null) {
@@ -2895,9 +2903,10 @@ public class MainActivity extends Activity {
         return new long[] { f.lastModified(), f.length() };
     }
 
-    // Removes files that were deleted, or changed since they were tagged, from a full library list.
-    // Entries with no recorded stamp (older caches) are kept and stamped now.
-    private void dropDeletedOrChangedFiles(List<SongItem> all) {
+    // Removes files that were deleted, or changed since they were tagged, from a full library list and
+    // returns how many. Entries with no recorded stamp (older caches) are kept and stamped now.
+    private int dropDeletedOrChangedFiles(List<SongItem> all) {
+        int dropped = 0;
         java.util.Iterator<SongItem> it = all.iterator();
         while (it.hasNext()) {
             SongItem item = it.next();
@@ -2915,8 +2924,10 @@ public class MainActivity extends Activity {
                 trackNumberMap.remove(path);
                 fileStampMap.remove(path);
                 it.remove();
+                dropped++;
             }
         }
+        return dropped;
     }
 
     // Shows the full tagged list minus duplicates (only the best-quality copy of each song stays visible).
@@ -3001,67 +3012,135 @@ public class MainActivity extends Activity {
         if (isCustomScanning)
             return;
         isCustomScanning = true;
+        // 🚀 [Background scan] Only block the screen when there's nothing to browse yet.
+        isBlockingLibraryScan = customLibrary.isEmpty() && audiobookLibrary.isEmpty();
 
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                if (pbLoadingProgress != null)
-                    pbLoadingProgress.setProgress(0);
-                if (tvLoadingProgress != null)
-                    tvLoadingProgress.setText(t("Counting files...\nPlease wait."));
-                showLoadingPopup();
+                if (isBlockingLibraryScan) {
+                    if (pbLoadingProgress != null)
+                        pbLoadingProgress.setProgress(0);
+                    if (tvLoadingProgress != null)
+                        tvLoadingProgress.setText(t("Counting files...\nPlease wait."));
+                    showLoadingPopup();
+                } else {
+                    showScanProgressInStatusBar(0);
+                }
             }
         });
 
         new Thread(new Runnable() {
             @Override
             public void run() {
-                // 🚀 [부분 스캔 1단계] 삭제된 파일 감지 (기존 바구니 정리)
-                // 🚀 [Incremental scan] ...and modified ones (e.g. re-tagged on a PC): dropping them here makes
-                // the folder walk below treat them as new, so only they get their tags read again.
-                dropDeletedOrChangedFiles(customLibraryAll);
-                dropDeletedOrChangedFiles(audiobookLibraryAll);
+                // A background scan keeps going with the screen off (the blocking one keeps the screen on instead).
+                PowerManager.WakeLock scanWakeLock = null;
+                try {
+                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                    scanWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Y1:LibraryScan");
+                    scanWakeLock.acquire(30 * 60 * 1000);
+                } catch (Exception e) {
+                }
+                try {
+                    runLibraryScan();
+                } catch (Throwable e) {
+                    // Without this an unexpected error left isCustomScanning stuck at true, and the library
+                    // could never be scanned again until the app restarted.
+                    e.printStackTrace();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            finishLibraryScanUI();
+                        }
+                    });
+                } finally {
+                    if (scanWakeLock != null && scanWakeLock.isHeld())
+                        scanWakeLock.release();
+                }
+            }
+        }).start();
+    }
 
-                // 🚀 이미 안전하게 살아있는 파일들의 '주소 명단'을 추출합니다. (검색 속도 극대화)
-                HashSet<String> existingMusic = new HashSet<>();
-                for (SongItem item : customLibraryAll)
-                    existingMusic.add(item.file.getAbsolutePath());
+    // Resets the scan flags and status bar; always runs on the UI thread when a scan ends.
+    private void finishLibraryScanUI() {
+        isCustomScanning = false;
+        isBlockingLibraryScan = false;
+        scanProgressPercent = -1;
+        updateStatusBarTitle();
+    }
 
-                HashSet<String> existingBooks = new HashSet<>();
-                for (SongItem item : audiobookLibraryAll)
-                    existingBooks.add(item.file.getAbsolutePath());
+    // The scan itself, on a background thread. It only touches the full lists (customLibraryAll /
+    // audiobookLibraryAll); the visible lists the UI reads are swapped in on the UI thread at the end.
+    private void runLibraryScan() {
+        // 🚀 [부분 스캔 1단계] 삭제된 파일 감지 (기존 바구니 정리)
+        // 🚀 [Incremental scan] ...and modified ones (e.g. re-tagged on a PC): dropping them here makes
+        // the folder walk below treat them as new, so only they get their tags read again.
+        int droppedFiles = dropDeletedOrChangedFiles(customLibraryAll)
+                + dropDeletedOrChangedFiles(audiobookLibraryAll);
 
-                totalAudioFiles = 0;
-                scannedAudioFiles = 0;
-                taggedAudioFiles = 0;
-                final long scanStart = System.currentTimeMillis();
+        // 🚀 이미 안전하게 살아있는 파일들의 '주소 명단'을 추출합니다. (검색 속도 극대화)
+        HashSet<String> existingMusic = new HashSet<>();
+        for (SongItem item : customLibraryAll)
+            existingMusic.add(item.file.getAbsolutePath());
 
-                // 🚀 양쪽 폴더 모두 개수 세기 (진행률 표시용)
-                countAudioFiles(rootFolder);
-                countAudioFiles(audiobookRootFolder);
+        HashSet<String> existingBooks = new HashSet<>();
+        for (SongItem item : audiobookLibraryAll)
+            existingBooks.add(item.file.getAbsolutePath());
 
-                // 🚀 [부분 스캔 2단계] 기존 명단을 들고 폴더를 뒤져서 '새로 들어온 파일'만 태그 파싱!
-                buildCustomLibrary(rootFolder, customLibraryAll, existingMusic);
-                buildCustomLibrary(audiobookRootFolder, audiobookLibraryAll, existingBooks);
+        totalAudioFiles = 0;
+        scannedAudioFiles = 0;
+        taggedAudioFiles = 0;
+        final long scanStart = System.currentTimeMillis();
 
-                // 🚀 [신규 엔진 장착] 중복 폭탄 해체! 최고 음질 1개만 남기고 다 분쇄합니다!
-                // (Only from the visible lists - the full lists keep duplicates so they're never re-tagged.)
-                refreshVisibleLibrary(customLibraryAll, customLibrary);
-                refreshVisibleLibrary(audiobookLibraryAll, audiobookLibrary);
+        // 🚀 양쪽 폴더 모두 개수 세기 (진행률 표시용)
+        countAudioFiles(rootFolder);
+        countAudioFiles(audiobookRootFolder);
 
-                // 즐겨찾기 자동 청소기
-                // (Checks the full lists: a favorite that's merely a hidden duplicate still exists on the card.)
-                HashSet<String> aliveSongs = new HashSet<>();
-                for (SongItem song : customLibraryAll)
-                    aliveSongs.add(song.file.getAbsolutePath());
-                for (SongItem book : audiobookLibraryAll)
-                    aliveSongs.add(book.file.getAbsolutePath());
+        // 🚀 [부분 스캔 2단계] 기존 명단을 들고 폴더를 뒤져서 '새로 들어온 파일'만 태그 파싱!
+        buildCustomLibrary(rootFolder, customLibraryAll, existingMusic);
+        buildCustomLibrary(audiobookRootFolder, audiobookLibraryAll, existingBooks);
+
+        // 🚀 [신규 엔진 장착] 중복 폭탄 해체! 최고 음질 1개만 남기고 다 분쇄합니다!
+        // (Only for the visible lists - the full lists keep duplicates so they're never re-tagged.)
+        final List<SongItem> visibleMusic = new ArrayList<>(customLibraryAll);
+        filterDuplicateSongs(visibleMusic);
+        final List<SongItem> visibleBooks = new ArrayList<>(audiobookLibraryAll);
+        filterDuplicateSongs(visibleBooks);
+
+        // 즐겨찾기 자동 청소기
+        // (Checks the full lists: a favorite that's merely a hidden duplicate still exists on the card.)
+        final HashSet<String> aliveSongs = new HashSet<>();
+        for (SongItem song : customLibraryAll)
+            aliveSongs.add(song.file.getAbsolutePath());
+        for (SongItem book : audiobookLibraryAll)
+            aliveSongs.add(book.file.getAbsolutePath());
+
+        // 🚀 [신규 추가] 다음 부팅 때 처음부터 다시 스캔하지 않도록, 완성된 라이브러리를 디스크에 저장!
+        saveLibraryCache();
+        android.util.Log.i("Y1Library", "Scan finished in " + (System.currentTimeMillis() - scanStart)
+                + " ms: " + scannedAudioFiles + " files, " + taggedAudioFiles + " tagged (new/changed), "
+                + droppedFiles + " removed/changed, " + visibleMusic.size() + " songs shown, "
+                + (customLibraryAll.size() - visibleMusic.size()) + " duplicates hidden"
+                + (isBlockingLibraryScan ? " [blocking]" : " [background]"));
+
+        final boolean libraryChanged = taggedAudioFiles > 0 || droppedFiles > 0
+                || visibleMusic.size() != customLibrary.size() || visibleBooks.size() != audiobookLibrary.size();
+        final boolean wasBlocking = isBlockingLibraryScan;
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                // 🚀 [Background scan] Swap the new lists in on the UI thread, so screens never read a
+                // half-updated library while the user keeps browsing during the scan.
+                customLibrary.clear();
+                customLibrary.addAll(visibleMusic);
+                audiobookLibrary.clear();
+                audiobookLibrary.addAll(visibleBooks);
 
                 boolean isCleanedUp = false;
                 java.util.Iterator<String> favIterator = favoritePaths.iterator();
                 while (favIterator.hasNext()) {
-                    String favPath = favIterator.next();
-                    if (!aliveSongs.contains(favPath)) {
+                    if (!aliveSongs.contains(favIterator.next())) {
                         favIterator.remove();
                         isCleanedUp = true;
                     }
@@ -3069,40 +3148,32 @@ public class MainActivity extends Activity {
                 if (isCleanedUp)
                     prefs.edit().putStringSet("favorites", favoritePaths).commit();
 
-                // 🚀 [신규 추가] 다음 부팅 때 처음부터 다시 스캔하지 않도록, 완성된 라이브러리를 디스크에 저장!
-                saveLibraryCache();
-                android.util.Log.i("Y1Library", "Scan finished in " + (System.currentTimeMillis() - scanStart)
-                        + " ms: " + scannedAudioFiles + " files, " + taggedAudioFiles + " tagged (new/changed), "
-                        + customLibrary.size() + " songs shown, "
-                        + (customLibraryAll.size() - customLibrary.size()) + " duplicates hidden");
+                finishLibraryScanUI();
+                Toast
+                        .makeText(
+                                MainActivity.this, t("Scan Complete! Music") + ": " + customLibrary.size() + " "
+                                        + t("Books: ") + audiobookLibrary.size(),
+                                Toast.LENGTH_SHORT)
+                        .show();
 
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        isCustomScanning = false;
-                        Toast
-                                .makeText(
-                                        MainActivity.this, t("Scan Complete! Music") + ": " + customLibrary.size() + " "
-                                                + t("Books: ") + audiobookLibrary.size(),
-                                        Toast.LENGTH_SHORT)
-                                .show();
-
-                        if (currentScreenState == STATE_BROWSER) {
-                            if (currentBrowserMode == BROWSER_ROOT)
-                                buildFileBrowserUI();
-                            else if (currentBrowserMode == BROWSER_ARTISTS)
-                                buildVirtualCategories("ARTIST");
-                            else if (currentBrowserMode == BROWSER_ALBUMS)
-                                buildVirtualCategories("ALBUM");
-                            else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS)
-                                buildVirtualSongs();
-                            else if (currentBrowserMode == BROWSER_COVER_FLOW)
-                                buildCoverFlowUI();
-                        }
-                    }
-                });
+                // Rebuilding the current list resets the user's position in it, so a background scan
+                // only does it when something actually changed - except the Music root, whose
+                // "Scanning Media..." row must go back to "Scan Media Library".
+                if (currentScreenState == STATE_BROWSER
+                        && (wasBlocking || libraryChanged || currentBrowserMode == BROWSER_ROOT)) {
+                    if (currentBrowserMode == BROWSER_ROOT)
+                        buildFileBrowserUI();
+                    else if (currentBrowserMode == BROWSER_ARTISTS)
+                        buildVirtualCategories("ARTIST");
+                    else if (currentBrowserMode == BROWSER_ALBUMS)
+                        buildVirtualCategories("ALBUM");
+                    else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS)
+                        buildVirtualSongs();
+                    else if (currentBrowserMode == BROWSER_COVER_FLOW)
+                        buildCoverFlowUI();
+                }
             }
-        }).start();
+        });
     }
 
     // 💡 [개조 완료] 화면 전체를 덮는 확실한 로딩 팝업 & 화면 꺼짐 방지 엔진
@@ -3125,7 +3196,8 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     // 🚀 [버그 수리 완료!] 음악 스캔이나 라디오 스캔 중 어느 하나라도 돌고 있으면 창을 닫지 않습니다!
-                    if (!isCustomScanning && !isRadioScanning) {
+                    // (A background library scan doesn't hold the popup open - only a blocking one does.)
+                    if (!isBlockingLibraryScan && !isRadioScanning) {
                         layoutLoadingOverlay.setVisibility(View.GONE);
                         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     } else {
@@ -3840,7 +3912,7 @@ public class MainActivity extends Activity {
                     serverWifiLock = null;
                 }
                 // 스캔 작업 중이 아닐 때만 화면 꺼짐 방지(FLAG) 해제
-                if (!isCustomScanning && !isRadioScanning) {
+                if (!isBlockingLibraryScan && !isRadioScanning) {
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 }
             } catch (Exception e) {
@@ -4135,7 +4207,19 @@ public class MainActivity extends Activity {
         } else {
             title = "";
         }
+        // 🚀 [Background scan] While the library updates in the background, the status bar shows its progress.
+        if (scanProgressPercent >= 0) {
+            title = t("Library") + " " + scanProgressPercent + "%";
+        }
         tvStatusClock.setText(title);
+    }
+
+    // Called on the UI thread with the scan's progress; only background scans use the status bar (a blocking
+    // scan already shows the full-screen popup).
+    private void showScanProgressInStatusBar(int percent) {
+        if (!isCustomScanning || isBlockingLibraryScan || percent == scanProgressPercent) return;
+        scanProgressPercent = percent;
+        updateStatusBarTitle();
     }
 
     public void changeScreen(int state) {
@@ -7540,7 +7624,7 @@ public class MainActivity extends Activity {
     // 🚀 [신규 추가] '💖 My Favorites' 전용 곡 리스트 생성기
     private void buildVirtualSongsForFavorites() {
         hideBrowserCoverPane();
-        if (isCustomScanning) {
+        if (isBlockingLibraryScan) {
             showLoadingPopup();
             currentBrowserMode = BROWSER_ROOT;
             buildFileBrowserUI();
@@ -7969,7 +8053,7 @@ public class MainActivity extends Activity {
                     clickFeedback();
                     lastBrowserFocusText = "FROM_LIBRARY";
 
-                    if (isCustomScanning) {
+                    if (isBlockingLibraryScan) {
                         currentBrowserMode = BROWSER_COVER_FLOW;
                         changeScreen(STATE_BROWSER);
                         showLoadingPopup();
@@ -8155,7 +8239,7 @@ public class MainActivity extends Activity {
                         if (audiobookLibrary.isEmpty() && !isCustomScanning)
                             startMediaLibraryScan();
                         buildFileBrowserUI();
-                        if (isCustomScanning)
+                        if (isBlockingLibraryScan)
                             showLoadingPopup();
                     });
                     containerBrowserItems.addView(btnAudiobooksNative);
@@ -8561,7 +8645,7 @@ public class MainActivity extends Activity {
                             }
 
                             // 모든 다운로드가 끝났다면 화면 꺼짐 방지(Wakelock) 해제!
-                            if (activePodcastDownloads.isEmpty() && !isCustomScanning && !isRadioScanning
+                            if (activePodcastDownloads.isEmpty() && !isBlockingLibraryScan && !isRadioScanning
                                     && !isServerRunning) {
                                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                             }
@@ -8584,7 +8668,7 @@ public class MainActivity extends Activity {
                                     && listVirtualSongs.getAdapter() != null) {
                                 ((android.widget.BaseAdapter) listVirtualSongs.getAdapter()).notifyDataSetChanged();
                             }
-                            if (activePodcastDownloads.isEmpty() && !isCustomScanning && !isRadioScanning
+                            if (activePodcastDownloads.isEmpty() && !isBlockingLibraryScan && !isRadioScanning
                                     && !isServerRunning) {
                                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                             }
@@ -8997,7 +9081,7 @@ public class MainActivity extends Activity {
     // 💡 3. 자체 DB에서 아티스트/앨범 카테고리 추출 (초고속 엔진 적용!)
     public void buildVirtualCategories(final String type) {
         hideBrowserCoverPane();
-        if (isCustomScanning) {
+        if (isBlockingLibraryScan) {
             showLoadingPopup(); // 🚀 스캔 중이라면 멋진 로딩창 띄우기!
             currentBrowserMode = BROWSER_ROOT;
             buildFileBrowserUI();
@@ -9764,7 +9848,7 @@ public class MainActivity extends Activity {
         if (statusBar != null)
             statusBar.setBackground(createStatusBarBackground());
 
-        if (isCustomScanning) {
+        if (isBlockingLibraryScan) {
             showLoadingPopup(); // 🚀 스캔 중이라면 대형 스피너 팝업을 띄웁니다!
             currentBrowserMode = BROWSER_ROOT;
             buildFileBrowserUI();
@@ -10966,7 +11050,7 @@ public class MainActivity extends Activity {
                             break;
                         case "OPEN_COVER_FLOW":
                             // 🚀 [지능형 부팅 스캔 추적 가동]
-                            if (isCustomScanning) {
+                            if (isBlockingLibraryScan) {
                                 currentBrowserMode = BROWSER_COVER_FLOW;
                                 changeScreen(STATE_BROWSER);
                                 showLoadingPopup();
@@ -11033,7 +11117,7 @@ public class MainActivity extends Activity {
                             if (customLibrary.isEmpty() && !isCustomScanning)
                                 startMediaLibraryScan();
                             changeScreen(STATE_BROWSER);
-                            if (isCustomScanning)
+                            if (isBlockingLibraryScan)
                                 showLoadingPopup();
                             break;
 
@@ -11044,7 +11128,7 @@ public class MainActivity extends Activity {
                             if (audiobookLibrary.isEmpty() && !isCustomScanning)
                                 startMediaLibraryScan();
                             changeScreen(STATE_BROWSER);
-                            if (isCustomScanning)
+                            if (isBlockingLibraryScan)
                                 showLoadingPopup();
                             break;
                         case "OPEN_BLUETOOTH":
@@ -16464,7 +16548,7 @@ public class MainActivity extends Activity {
         public void run() {
             if (activePodcastDownloads.isEmpty()) {
                 // 💡 다운로드가 모두 끝나면 화면 꺼짐 방지를 해제하여 배터리를 아낍니다!
-                if (!isCustomScanning && !isRadioScanning && !isServerRunning) {
+                if (!isBlockingLibraryScan && !isRadioScanning && !isServerRunning) {
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 }
                 return;
@@ -16524,7 +16608,7 @@ public class MainActivity extends Activity {
                 podcastProgressHandler.postDelayed(this, 1000); // 1초마다 반복 검사
             } else {
                 // 다운로드 끝! 화면 잠금 해제
-                if (!isCustomScanning && !isRadioScanning && !isServerRunning) {
+                if (!isBlockingLibraryScan && !isRadioScanning && !isServerRunning) {
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 }
             }
