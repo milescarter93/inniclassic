@@ -1036,6 +1036,11 @@ public class AudioPlayerManager {
         } catch (Exception e) {}
     }
 
+    // True once anything has been played in this process (the players are only created on first playback).
+    public boolean hasActivePlayer() {
+        return exoPlayer != null || legacyPlayer != null;
+    }
+
     public int getCurrentPosition() {
         if (isUsingLegacyPlayer && legacyPlayer != null) return legacyPlayer.getCurrentPosition();
         if (!isUsingLegacyPlayer && exoPlayer != null) {

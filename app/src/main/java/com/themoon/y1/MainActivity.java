@@ -1052,10 +1052,13 @@ public class MainActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
 
-            if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+            if (Intent.ACTION_SHUTDOWN.equals(action)) {
+                savePlaybackStateNow(); // 🚀 [Resume on start] exact position before the device powers off
+            } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                 isScreenSleeping = true;
                 autoManageWifiPower(true); // 🚀 [절전 모드 진입]
                 onDisplayIdleChanged();
+                savePlaybackStateNow(); // the device often gets switched off right after the screen
             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                 isScreenSleeping = false;
                 lastScreenOnTime = System.currentTimeMillis();
@@ -2471,12 +2474,12 @@ public class MainActivity extends Activity {
         clockHandler.post(clockTask);
         playbackStateHandler.removeCallbacks(savePlaybackStateTask);
         playbackStateHandler.postDelayed(savePlaybackStateTask, PLAYBACK_STATE_SAVE_MS);
-        // 🚀 [Crash recovery] If this start follows a crash, put the music back where it was - once the
-        // rest of onCreate has set up the player views.
+        // 🚀 [Resume on start] Put the last queue back (and the music, after a crash) - once the rest of
+        // onCreate has set up the player views.
         playbackStateHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                resumeAfterCrashIfNeeded();
+                restorePlaybackOnStart();
             }
         }, 1000);
 
@@ -2501,6 +2504,7 @@ public class MainActivity extends Activity {
         filter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
+        filter.addAction(Intent.ACTION_SHUTDOWN);
 
 
         try {
@@ -3417,15 +3421,45 @@ public class MainActivity extends Activity {
         }
     };
 
-    private void resumeAfterCrashIfNeeded() {
-        if (!com.themoon.y1.managers.PlaybackStateStore.consumeResumeAfterCrash(this)) return;
+    // 🚀 [Resume on start] Puts the last queue, track and position back when the launcher starts:
+    // - after a crash, playing again if it was playing;
+    // - on any other fresh start (power on, reinstall...), loaded but paused, so Now Playing and the
+    //   play button pick up where the user left off.
+    private void restorePlaybackOnStart() {
+        boolean afterCrash = com.themoon.y1.managers.PlaybackStateStore.consumeResumeAfterCrash(this);
         com.themoon.y1.managers.PlaybackStateStore.State state = com.themoon.y1.managers.PlaybackStateStore.load(this);
         if (state == null) return;
-        boolean restored = com.themoon.y1.managers.AudioPlayerManager.getInstance().restoreQueue(state, state.wasPlaying);
-        android.util.Log.i("Y1Resume", "Resume after crash: restored=" + restored + " index=" + state.index
-                + " position=" + state.positionMs + " ms playing=" + state.wasPlaying);
-        if (restored && state.wasPlaying) {
+        com.themoon.y1.managers.AudioPlayerManager apm = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        if (apm.hasActivePlayer()) {
+            // Same process, new activity (recreate() after a theme or language change): the music never
+            // stopped, but the queue lived in the old activity, so next/previous had nothing to work with.
+            // Hand this activity its queue back without touching the player.
+            if (currentPlaylist.isEmpty()) {
+                originalPlaylist.addAll(state.originalQueue);
+                currentPlaylist.addAll(state.currentQueue);
+                currentIndex = state.index;
+            }
+            return;
+        }
+        boolean play = afterCrash && state.wasPlaying;
+        boolean restored = apm.restoreQueue(state, play);
+        android.util.Log.i("Y1Resume", (afterCrash ? "Resume after crash" : "Restore on start") + ": restored="
+                + restored + " index=" + state.index + " position=" + state.positionMs + " ms playing=" + play);
+        if (restored && play) {
             Toast.makeText(this, t("Resuming playback after an unexpected error."), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // Saves the exact position right now (e.g. before powering off), not just at the next periodic save.
+    private void savePlaybackStateNow() {
+        try {
+            com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+            if (am.hasActivePlayer() && !currentPlaylist.isEmpty() && currentIndex < currentPlaylist.size()
+                    && currentPlaylist.get(currentIndex).exists()) {
+                com.themoon.y1.managers.PlaybackStateStore.saveProgress(this, currentIndex, am.getCurrentPosition(),
+                        am.isPlaying() && !isPausedByHand, true);
+            }
+        } catch (Exception e) {
         }
     }
 
@@ -6617,6 +6651,7 @@ public class MainActivity extends Activity {
                         .setMessage(t("Do you want to shut down the device?"))
                         .setPositiveButton(t("Shut Down"), new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface dialog, int which) {
+                                savePlaybackStateNow(); // 🚀 [Resume on start] reboot -p skips the shutdown broadcast
                                 try {
                                     Process proc = Runtime.getRuntime().exec(new String[] { "su", "-c", "reboot -p" });
                                     proc.waitFor();
@@ -12205,6 +12240,10 @@ public class MainActivity extends Activity {
             int duration = am.getDuration();
             tvPlayerTimeCurrent.setText(formatTime(position));
             tvPlayerTimeTotal.setText("-" + formatTime(Math.max(0, duration - position)));
+            // The progress loop only runs while playing; set the bar here too, so a paused track (e.g. one
+            // restored at start-up) shows its position instead of an empty bar.
+            if (playerProgress != null)
+                playerProgress.setProgress(duration > 0 ? (int) (((float) position / duration) * 100) : 0);
             if (am.isPlaying()) {
                 ivAlbumArt.setAlpha(1.0f);
                 ivPauseOverlay.setVisibility(View.GONE);
