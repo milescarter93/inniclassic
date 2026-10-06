@@ -6481,6 +6481,17 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnLegal);
 
+        // 🚀 [Settings backup] Export/import all settings to the SD card
+        LinearLayout btnBackupMenu = createSettingRow("Backup & Restore", "〉 ");
+        btnBackupMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildBackupSettingsUI();
+            }
+        });
+        containerSettingsItems.addView(btnBackupMenu);
+
         // 🚀 [iPod 스타일] Reset All Settings - 모든 앱 설정을 기본값으로 되돌립니다
         LinearLayout btnResetAll = createSettingRow("Reset All Settings", "〉 ");
         btnResetAll.setOnClickListener(new View.OnClickListener() {
@@ -13569,6 +13580,88 @@ public class MainActivity extends Activity {
 
         Toast.makeText(this, t("All settings have been reset."), Toast.LENGTH_SHORT).show();
         buildSettingsUI();
+    }
+
+    // 🚀 [Settings backup] Sub-menu: back up settings to /Y1_Backup on the SD card, or restore them
+    private void buildBackupSettingsUI() {
+        currentSettingsDepth = 1;
+        containerSettingsItems.removeAllViews();
+
+        final LinearLayout btnExport = createSettingRow("Back Up Settings", "〉 ");
+        btnExport.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                try {
+                    int count = com.themoon.y1.managers.SettingsBackupManager.exportSettings(MainActivity.this);
+                    Toast.makeText(MainActivity.this, t("Settings backed up") + " (" + count + ")",
+                            Toast.LENGTH_SHORT).show();
+                    buildBackupSettingsUI(); // refresh the "last backup" date
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    Toast.makeText(MainActivity.this, t("Backup failed. Is the SD card available?"),
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+        containerSettingsItems.addView(btnExport);
+
+        long backupTime = com.themoon.y1.managers.SettingsBackupManager.getBackupTime();
+        String backupDate = backupTime > 0
+                ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(new java.util.Date(backupTime))
+                : t("None");
+        final LinearLayout btnImport = createSettingRow("Restore Settings", backupDate);
+        btnImport.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                if (!com.themoon.y1.managers.SettingsBackupManager.hasBackup()) {
+                    Toast.makeText(MainActivity.this, t("No backup found on the SD card."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle(t("Restore Settings"))
+                        .setMessage(t("Replace the current settings with the backup? The app will restart."))
+                        .setPositiveButton(t("Restore"), new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                try {
+                                    com.themoon.y1.managers.SettingsBackupManager.importSettings(MainActivity.this);
+                                    restartAppAfterRestore();
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                    Toast.makeText(MainActivity.this, t("Restore failed. The backup file may be damaged."),
+                                            Toast.LENGTH_LONG).show();
+                                }
+                            }
+                        })
+                        .setNegativeButton(t("Cancel"), null)
+                        .show();
+            }
+        });
+        containerSettingsItems.addView(btnImport);
+
+        if (containerSettingsItems.getChildCount() > 0) {
+            containerSettingsItems.getChildAt(0).requestFocus();
+        }
+    }
+
+    // Settings are read into fields and singletons all over the app at startup, so a restored backup
+    // only fully applies after a fresh process start - schedule a relaunch and exit.
+    private void restartAppAfterRestore() {
+        Toast.makeText(this, t("Settings restored. Restarting..."), Toast.LENGTH_SHORT).show();
+        Intent relaunch = new Intent(this, MainActivity.class);
+        relaunch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 0, relaunch,
+                android.app.PendingIntent.FLAG_CANCEL_CURRENT);
+        android.app.AlarmManager am = (android.app.AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        am.set(android.app.AlarmManager.RTC, System.currentTimeMillis() + 1500, pi);
+        // Give the toast a moment on screen before the process goes away.
+        new android.os.Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }
+        }, 700);
     }
 
     // 🚀 [iPod 스타일] Volume Limit 선택 화면 - Off 또는 1~기기 최대 볼륨 단계 중 하나를 고릅니다

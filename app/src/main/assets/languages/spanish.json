@@ -305,5 +305,16 @@
   "Scan Complete!\nFound": "¡Escaneo completo!\nCanales encontrados: ",
   "channels.\nTuning to": ".\nCambiando a ",
   "No stations found.": "No se encontraron canales.",
-  "No .m3u files found in Y1_Playlists": "No se encontraron archivos .m3u en Y1_Playlists"
+  "No .m3u files found in Y1_Playlists": "No se encontraron archivos .m3u en Y1_Playlists",
+  "Backup & Restore": "Copia de seguridad",
+  "Back Up Settings": "Guardar ajustes",
+  "Restore Settings": "Restaurar ajustes",
+  "Settings backed up": "Ajustes guardados",
+  "Backup failed. Is the SD card available?": "Error al guardar. ¿Está disponible la tarjeta SD?",
+  "None": "Ninguna",
+  "No backup found on the SD card.": "No hay ninguna copia en la tarjeta SD.",
+  "Replace the current settings with the backup? The app will restart.": "¿Sustituir los ajustes actuales por la copia? La aplicación se reiniciará.",
+  "Restore": "Restaurar",
+  "Restore failed. The backup file may be damaged.": "Error al restaurar. El archivo de copia puede estar dañado.",
+  "Settings restored. Restarting...": "Ajustes restaurados. Reiniciando..."
 }
