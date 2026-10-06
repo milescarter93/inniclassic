@@ -497,7 +497,9 @@ public class ThemeManager {
     }
     public static boolean isClassicTheme() {
         String name = getCurrentTheme().name;
-        return "iPod Classic".equals(name) || "iPod Classic Dark".equals(name);
+        // The bundled dark theme's config.json names it "iPod Classic (Dark)"; "iPod Classic Dark" is kept
+        // for copies of the theme that use the folder name.
+        return "iPod Classic".equals(name) || "iPod Classic (Dark)".equals(name) || "iPod Classic Dark".equals(name);
     }
     public static boolean isClassicLightTheme() { return "iPod Classic".equals(getCurrentTheme().name); }
     public static float getListTextSize() { return isClassicTheme() ? 21f : 23f; }
