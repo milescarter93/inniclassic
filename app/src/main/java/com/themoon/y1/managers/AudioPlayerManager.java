@@ -1139,6 +1139,16 @@ public class AudioPlayerManager {
         } catch (Exception e) {}
     }
 
+    // 🚀 [Sleep timer] The player's own gain (0..1), independent of the system volume and the Volume Limit,
+    // so a fade-out doesn't touch the user's volume setting.
+    public void setPlayerVolume(float volume) {
+        float v = Math.max(0f, Math.min(1f, volume));
+        try {
+            if (exoPlayer != null) exoPlayer.setVolume(v);
+            if (legacyPlayer != null) legacyPlayer.setVolume(v, v);
+        } catch (Exception e) {}
+    }
+
     // True once anything has been played in this process (the players are only created on first playback).
     public boolean hasActivePlayer() {
         return exoPlayer != null || legacyPlayer != null;

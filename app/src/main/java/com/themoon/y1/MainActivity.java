@@ -2474,6 +2474,13 @@ public class MainActivity extends Activity {
         clockHandler.post(clockTask);
         playbackStateHandler.removeCallbacks(savePlaybackStateTask);
         playbackStateHandler.postDelayed(savePlaybackStateTask, PLAYBACK_STATE_SAVE_MS);
+        // 🚀 [Sleep timer] Say so when it pauses the music (re-set on every activity, it outlives them).
+        com.themoon.y1.managers.SleepTimer.getInstance().setListener(new com.themoon.y1.managers.SleepTimer.Listener() {
+            @Override
+            public void onSleepTimerFinished() {
+                Toast.makeText(MainActivity.this, t("Sleep timer: music paused."), Toast.LENGTH_LONG).show();
+            }
+        });
         // 🚀 [Resume on start] Put the last queue back (and the music, after a crash) - once the rest of
         // onCreate has set up the player views.
         playbackStateHandler.postDelayed(new Runnable() {
@@ -6364,6 +6371,22 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnShuffleBy);
+
+        // 🚀 [Sleep timer]
+        final LinearLayout btnSleepTimer = createSettingRow("Sleep Timer", sleepTimerStatus() + " 〉");
+        btnSleepTimer.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                showSleepTimerDialog(new Runnable() {
+                    @Override
+                    public void run() {
+                        ((TextView) btnSleepTimer.getChildAt(1)).setText(sleepTimerStatus() + " 〉");
+                    }
+                });
+            }
+        });
+        containerSettingsItems.addView(btnSleepTimer);
 
         final LinearLayout btnRepeat = createSettingRow("Repeat Mode", t(getRepeatModeText(repeatMode)));
         btnRepeat.setOnClickListener(new View.OnClickListener() {
@@ -15952,6 +15975,16 @@ public class MainActivity extends Activity {
             layout.addView(btnUpNext);
         }
 
+        // 🚀 [Sleep timer]
+        View btnSleep = createListButtonWithIcon("", t("Sleep Timer") + ": " + sleepTimerStatus());
+        btnSleep.setOnKeyListener(dialogWheelListener);
+        btnSleep.setOnClickListener(v -> {
+            clickFeedback();
+            dialog.dismiss();
+            showSleepTimerDialog(null);
+        });
+        layout.addView(btnSleep);
+
         // 🚀 [버그 수리] Center 롱프레스가 이제 화면 잠금 전용이 되면서, 예전에 즐겨찾기를 켜고 끄던
         // "Center 더블클릭" 경로가 죽은 코드가 되어 즐겨찾기를 켤 방법이 아예 사라졌습니다 - 이 메뉴로 복구합니다.
         boolean isFav = favoritePaths.contains(songFile.getAbsolutePath());
@@ -16176,6 +16209,67 @@ public class MainActivity extends Activity {
             }
         }
         return lower;
+    }
+
+    // =======================================================
+    // 🚀 [Sleep timer] Pick when the music should fade out and pause.
+    // =======================================================
+    private static final int[] SLEEP_TIMER_MINUTES = { 15, 30, 45, 60, 90 };
+
+    // Short state for menus: "Off", "23 min" or "End of Song".
+    private String sleepTimerStatus() {
+        com.themoon.y1.managers.SleepTimer timer = com.themoon.y1.managers.SleepTimer.getInstance();
+        if (!timer.isActive()) return t("Off");
+        if (timer.isEndOfSong()) return t("End of Song");
+        return String.format(Locale.US, t("%d min"), timer.minutesLeft());
+    }
+
+    // onDone runs after a choice (e.g. to refresh the Settings row); may be null.
+    private void showSleepTimerDialog(final Runnable onDone) {
+        final com.themoon.y1.managers.SleepTimer timer = com.themoon.y1.managers.SleepTimer.getInstance();
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
+
+        if (timer.isActive()) {
+            addQueueMenuRow(layout, wheel, t("Turn Off Timer") + " (" + sleepTimerStatus() + ")", v -> {
+                dialog.dismiss();
+                timer.cancel();
+                Toast.makeText(MainActivity.this, t("Sleep timer off."), Toast.LENGTH_SHORT).show();
+                if (onDone != null) onDone.run();
+            });
+        }
+        for (final int minutes : SLEEP_TIMER_MINUTES) {
+            addQueueMenuRow(layout, wheel, String.format(Locale.US, t("%d minutes"), minutes), v -> {
+                dialog.dismiss();
+                timer.startMinutes(minutes);
+                Toast.makeText(MainActivity.this, String.format(Locale.US, t("Music will pause in %d minutes."), minutes),
+                        Toast.LENGTH_SHORT).show();
+                if (onDone != null) onDone.run();
+            });
+        }
+        addQueueMenuRow(layout, wheel, t("End of Song"), v -> {
+            dialog.dismiss();
+            timer.startEndOfSong();
+            Toast.makeText(MainActivity.this, t("Music will pause when this song ends."), Toast.LENGTH_SHORT).show();
+            if (onDone != null) onDone.run();
+        });
+        addQueueMenuRow(layout, wheel, t("Cancel"), v -> dialog.dismiss());
+
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
+            }
+        }, 50);
     }
 
     // 🚀 [Song menu] The song the cursor is on in a song list, or null (other screens, the "Shuffle" row,

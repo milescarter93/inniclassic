@@ -351,5 +351,15 @@
   "Song": "Canción",
   "Songs": "Canciones",
   "song": "canción",
-  "songs": "canciones"
+  "songs": "canciones",
+  "Off": "Desactivado",
+  "Sleep Timer": "Temporizador de apagado",
+  "End of Song": "Al terminar la canción",
+  "%d min": "%d min",
+  "%d minutes": "%d minutos",
+  "Turn Off Timer": "Desactivar temporizador",
+  "Sleep timer off.": "Temporizador desactivado.",
+  "Music will pause in %d minutes.": "La música se pausará dentro de %d minutos.",
+  "Music will pause when this song ends.": "La música se pausará al terminar esta canción.",
+  "Sleep timer: music paused.": "Temporizador: música en pausa."
 }
