@@ -1796,6 +1796,10 @@ public class MainActivity extends Activity {
         // 🚀 [추가된 부분] 앱이 켜질 때(혹은 튕기고 재시작될 때) 조용히 자동 스캔을 돌려 리스트를 복구합니다!
         if (customLibrary.isEmpty() && !isCustomScanning) {
             startMediaLibraryScan();
+        } else if (libraryCacheNeedsScan && !isCustomScanning) {
+            // 🚀 [Tag reading] Older cache format or an interrupted scan: update in the background right away.
+            libraryCacheNeedsScan = false;
+            startMediaLibraryScan();
         }
         layoutMainMenu = findViewById(R.id.layout_main_menu);
         ivMainBg = findViewById(R.id.iv_main_bg);
@@ -2775,13 +2779,27 @@ public class MainActivity extends Activity {
                             al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
                             trackStr = mmr
                                     .extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
-                            y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE);
+                            // 🚀 [Tag reading] ID3 TYER/TDRC come back as METADATA_KEY_YEAR - KEY_DATE is null for
+                            // MP3s, which left every MP3 in the library as "Unknown Year".
+                            y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR);
+                            if (y == null || y.trim().isEmpty())
+                                y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE);
                             g = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE);
                             aa = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST);
                             cp = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_COMPOSER);
 
                             fis.close();
                             mmr.release();
+                        }
+
+                        // 🚀 [Tag reading] Untagged "Artist - Title.mp3": take both from the file name (title already
+                        // holds the name without its extension) instead of showing the whole name as the title.
+                        if ((t == null || t.trim().isEmpty()) && (a == null || a.trim().isEmpty())) {
+                            int sep = title.indexOf(" - ");
+                            if (sep > 0 && sep < title.length() - 3) {
+                                a = title.substring(0, sep).trim();
+                                t = title.substring(sep + 3).trim();
+                            }
                         }
 
                         if (t != null && !t.trim().isEmpty())
@@ -2815,8 +2833,10 @@ public class MainActivity extends Activity {
                             }
                         }
 
-                        if (y != null && !y.trim().isEmpty())
+                        y = normalizeYearTag(y);
+                        if (y != null)
                             year = y;
+                        g = normalizeGenreTag(g);
                         if (g != null && !g.trim().isEmpty())
                             genre = g;
 
@@ -2851,7 +2871,7 @@ public class MainActivity extends Activity {
                     // (targetLibrary is now the full list incl. duplicates - those are only hidden from the
                     // visible lists at the end of the scan, so the cache keeps them and skips them next time.)
                     if (scannedAudioFiles % 500 == 0) {
-                        saveLibraryCache();
+                        saveLibraryCache(false);
                     }
                     if (totalAudioFiles > 0) {
                         final int progress = (int) (((float) scannedAudioFiles / totalAudioFiles) * 100);
@@ -2877,10 +2897,23 @@ public class MainActivity extends Activity {
     // 🚀 [신규 추가] 스캔 완료된 라이브러리를 디스크에 저장해서, 다음 부팅 때 처음부터 다시 스캔하지 않도록!
     private static final File LIBRARY_CACHE_FILE = new File("/storage/sdcard0/.y1_library_cache.json");
 
+    // 2 = full lists incl. duplicates, with per-file mtime/size. 3 = years read from METADATA_KEY_YEAR; older
+    // caches have "Unknown Year" for every MP3, so loading one re-tags the whole library once in the background.
+    private static final int LIBRARY_CACHE_VERSION = 3;
+    // Set by loadLibraryCache() when the cache needs a scan right away (older format, or an interrupted scan).
+    private boolean libraryCacheNeedsScan = false;
+
     private void saveLibraryCache() {
+        saveLibraryCache(true);
+    }
+
+    // complete = false for the periodic saves during a scan: if the scan is cut short, the next start
+    // sees an incomplete cache and resumes scanning instead of showing a partial library indefinitely.
+    private void saveLibraryCache(boolean complete) {
         try {
             org.json.JSONObject root = new org.json.JSONObject();
-            root.put("version", 2); // 2 = full lists incl. duplicates, with per-file mtime/size
+            root.put("version", LIBRARY_CACHE_VERSION);
+            root.put("complete", complete);
             root.put("music", songListToJson(customLibraryAll));
             root.put("books", songListToJson(audiobookLibraryAll));
             // Write to a temp file and rename, so a crash or pulled card mid-write can't leave a truncated
@@ -2901,6 +2934,35 @@ public class MainActivity extends Activity {
 
     private static long[] fileStamp(File f) {
         return new long[] { f.lastModified(), f.length() };
+    }
+
+    // 🚀 [Tag reading] Year tags come as "2014", "2014-03-01" or "2024-10-25T07:00:00Z" - keep just the year.
+    private static String normalizeYearTag(String raw) {
+        if (raw == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(1[0-9]{3}|2[0-9]{3})").matcher(raw);
+        return m.find() ? m.group(1) : null;
+    }
+
+    // The 80 standard ID3v1 genres, for files whose genre tag is just a number like "(13)" or "17".
+    private static final String[] ID3V1_GENRES = { "Blues", "Classic Rock", "Country", "Dance", "Disco", "Funk",
+            "Grunge", "Hip-Hop", "Jazz", "Metal", "New Age", "Oldies", "Other", "Pop", "R&B", "Rap", "Reggae", "Rock",
+            "Techno", "Industrial", "Alternative", "Ska", "Death Metal", "Pranks", "Soundtrack", "Euro-Techno",
+            "Ambient", "Trip-Hop", "Vocal", "Jazz+Funk", "Fusion", "Trance", "Classical", "Instrumental", "Acid",
+            "House", "Game", "Sound Clip", "Gospel", "Noise", "Alternative Rock", "Bass", "Soul", "Punk", "Space",
+            "Meditative", "Instrumental Pop", "Instrumental Rock", "Ethnic", "Gothic", "Darkwave", "Techno-Industrial",
+            "Electronic", "Pop-Folk", "Eurodance", "Dream", "Southern Rock", "Comedy", "Cult", "Gangsta", "Top 40",
+            "Christian Rap", "Pop/Funk", "Jungle", "Native American", "Cabaret", "New Wave", "Psychedelic", "Rave",
+            "Showtunes", "Trailer", "Lo-Fi", "Tribal", "Acid Punk", "Acid Jazz", "Polka", "Retro", "Musical",
+            "Rock & Roll", "Hard Rock" };
+
+    // Maps numeric ID3v1 genre references to their names; returns null for "no genre" (255 and other
+    // unknown numbers) and leaves real genre names untouched.
+    private static String normalizeGenreTag(String raw) {
+        if (raw == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^\\(?(\\d{1,3})\\)?$").matcher(raw.trim());
+        if (!m.matches()) return raw;
+        int code = Integer.parseInt(m.group(1));
+        return code < ID3V1_GENRES.length ? ID3V1_GENRES[code] : null;
     }
 
     // Removes files that were deleted, or changed since they were tagged, from a full library list and
@@ -2973,6 +3035,18 @@ public class MainActivity extends Activity {
             org.json.JSONObject root = new org.json.JSONObject(new String(data, "UTF-8"));
             jsonToSongList(root.optJSONArray("music"), customLibraryAll);
             jsonToSongList(root.optJSONArray("books"), audiobookLibraryAll);
+            int version = root.optInt("version", 1);
+            if (version < LIBRARY_CACHE_VERSION) {
+                // Tags in older caches were read with the year bug: give every entry a stamp no file can
+                // match, so the next scan re-reads them all (the library stays browsable meanwhile).
+                for (SongItem s : customLibraryAll)
+                    fileStampMap.put(s.file.getAbsolutePath(), new long[] { -1, -1 });
+                for (SongItem s : audiobookLibraryAll)
+                    fileStampMap.put(s.file.getAbsolutePath(), new long[] { -1, -1 });
+                libraryCacheNeedsScan = true;
+            } else if (!root.optBoolean("complete", true)) {
+                libraryCacheNeedsScan = true;
+            }
             // Version 1 caches (and tools/build_library_cache.py) only hold the deduplicated list, so this is
             // a no-op for them; version 2 caches also carry the hidden duplicates.
             refreshVisibleLibrary(customLibraryAll, customLibrary);
@@ -4574,8 +4648,17 @@ public class MainActivity extends Activity {
     private boolean isValidQuizField(SongItem s, int type) {
         if (type == QUIZ_TYPE_TITLE) return true; // quizPool 자체가 이미 제목 유효성을 보장합니다.
         String v = getQuizFieldValue(s, type);
-        return v != null && !v.trim().isEmpty() && !v.trim().toLowerCase(Locale.US).startsWith("unknown");
+        if (v == null || v.trim().isEmpty() || v.trim().toLowerCase(Locale.US).startsWith("unknown"))
+            return false;
+        // The library stores these placeholders in the UI language it was scanned in ("Año desconocido"...).
+        for (String placeholder : QUIZ_PLACEHOLDERS) {
+            if (v.trim().equalsIgnoreCase(t(placeholder))) return false;
+        }
+        return true;
     }
+
+    private static final String[] QUIZ_PLACEHOLDERS = { "Unknown Artist", "Unknown Album", "Unknown Year",
+            "Unknown Genre", "Unknown Author", "Unknown Book" };
 
     // 🚀 이 유형으로 문제를 낼 만큼(4지선다에 충분할 만큼) 서로 다른 값이 라이브러리에 있는지 확인합니다.
     private int countDistinctQuizField(int type) {

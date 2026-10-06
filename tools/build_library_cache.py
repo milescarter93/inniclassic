@@ -126,7 +126,10 @@ def main():
 
     out_path = sdcard / ".y1_library_cache.json"
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump({"music": music_entries, "books": book_entries}, f, ensure_ascii=False)
+        # Keep "version" in sync with LIBRARY_CACHE_VERSION in MainActivity.java: an older version makes the
+        # device re-read every file's tags. Entries carry no mtime/size; the device records those on its next scan.
+        json.dump({"version": 3, "complete": True, "music": music_entries, "books": book_entries}, f,
+                  ensure_ascii=False)
 
     print(f"\nWrote {out_path}")
     print("Eject the card and put it back in the Y1 - the next library scan should skip tag extraction for everything in here.")
