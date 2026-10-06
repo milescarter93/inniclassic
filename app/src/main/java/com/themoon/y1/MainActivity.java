@@ -2559,8 +2559,10 @@ public class MainActivity extends Activity {
         java.util.HashMap<String, SongItem> bestSongs = new java.util.HashMap<>();
 
         for (SongItem song : library) {
-            // 💡 [암호키 생성] "가수 이름 + 노래 제목" (대소문자 무시, 공백 제거로 정확도 1000% 향상!)
-            String key = (song.artist + "_" + song.title).toLowerCase().replaceAll("\\s", "");
+            // 💡 [암호키 생성] "가수 이름 + 앨범 + 노래 제목" (대소문자 무시, 공백 제거로 정확도 1000% 향상!)
+            // The album is part of the key: the same song on two releases (a deluxe edition, an EP and the
+            // album, ...) is two real tracks, and hiding one left holes in those albums' track lists.
+            String key = (song.artist + "_" + song.album + "_" + song.title).toLowerCase().replaceAll("\\s", "");
 
             if (bestSongs.containsKey(key)) {
                 SongItem existing = bestSongs.get(key);
