@@ -9450,6 +9450,8 @@ public class MainActivity extends Activity {
         List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
 
         HashSet<String> uniqueCategories = new HashSet<>();
+        // 🚀 [Sorting] Earliest known year of each album, to list an artist's albums chronologically.
+        final java.util.HashMap<String, Integer> albumYears = new java.util.HashMap<>();
         for (SongItem song : activeLibrary) {
             // 🚀 [수정] 앨범 목록을 특정 아티스트로 걸러야 한다면, 그 아티스트의 곡이 아닌 건 건너뜁니다!
             // (Album Artists에서 들어왔으면 albumArtist 기준, Artists에서 들어왔으면 트랙 artist 기준)
@@ -9476,11 +9478,28 @@ public class MainActivity extends Activity {
                 val = song.composer;
 
             uniqueCategories.add(val);
+            if (type.equals("ALBUM")) {
+                int y = yearOf(song.year);
+                Integer known = albumYears.get(val);
+                if (y > 0 && (known == null || y < known)) albumYears.put(val, y);
+            }
         }
 
         List<String> categories = new ArrayList<>(uniqueCategories);
         // 🚀 [수정] 대소문자 구분 없이 완벽하게 알파벳순으로 섞어서 정렬합니다!
-        java.util.Collections.sort(categories, String.CASE_INSENSITIVE_ORDER);
+        // 🚀 [Sorting] ...ignoring accents and a leading "The".
+        sortByNameKey(categories);
+        if (type.equals("ALBUM") && !categoryArtistFilter.isEmpty()) {
+            // One artist's albums: oldest first, like a discography (albums without a year go last).
+            // The sort is stable, so albums from the same year stay in name order.
+            java.util.Collections.sort(categories, new java.util.Comparator<String>() {
+                @Override
+                public int compare(String a, String b) {
+                    Integer ya = albumYears.get(a), yb = albumYears.get(b);
+                    return Integer.compare(ya != null ? ya : Integer.MAX_VALUE, yb != null ? yb : Integer.MAX_VALUE);
+                }
+            });
+        }
 
         // 🚀 [신규 추가] 특정 아티스트의 앨범 목록이라면, 맨 위에 "전체 곡" 항목을 하나 꽂아 넣습니다!
         if (type.equals("ALBUM") && !categoryArtistFilter.isEmpty()) {
@@ -9531,7 +9550,11 @@ public class MainActivity extends Activity {
 
         // 이모지 및 불필요한 공백 제거
         String clean = text.replace("📁 ", "").replace("👤 ", "")
-                .replace("💿 ", "").replace("🎵 ", "").trim().toUpperCase();
+                .replace("💿 ", "").replace("🎵 ", "").trim();
+        // 🚀 [Sorting] Same rules as the list order (sortKey): "The Word Alive" -> W, "Ángel" -> A. Otherwise
+        // the alphabet bar would send "T" somewhere the list no longer keeps those names.
+        String key = sortKey(clean);
+        clean = (key.isEmpty() ? clean : key).toUpperCase();
         if (clean.isEmpty())
             return '#';
 
@@ -10310,6 +10333,9 @@ public class MainActivity extends Activity {
         // =======================================================
         // 🚀 1. [앨범 모드 전용] 트랙 번호순 정렬 엔진 가동!
         // =======================================================
+        // 🚀 [Sorting] Title keys (no accents, no leading "The") computed once per song.
+        final java.util.IdentityHashMap<SongItem, String> titleKeys = new java.util.IdentityHashMap<>();
+        for (SongItem s : targetSongs) titleKeys.put(s, sortKey(s.title));
         java.util.Collections.sort(targetSongs, new java.util.Comparator<SongItem>() {
             @Override
             public int compare(SongItem s1, SongItem s2) {
@@ -10327,7 +10353,8 @@ public class MainActivity extends Activity {
                     }
                 }
                 // 트랙 번호가 아예 없거나, 앨범 모드가 아니면 기존처럼 제목 알파벳순 정렬
-                return s1.title.compareToIgnoreCase(s2.title);
+                int c = titleKeys.get(s1).compareTo(titleKeys.get(s2));
+                return c != 0 ? c : s1.title.compareToIgnoreCase(s2.title);
             }
         });
 
@@ -16260,8 +16287,11 @@ public class MainActivity extends Activity {
         String lower = s.toLowerCase(Locale.ROOT);
         for (int i = 0; i < lower.length(); i++) {
             if (lower.charAt(i) > 0x7F) {
-                return COMBINING_MARKS.matcher(
+                String stripped = COMBINING_MARKS.matcher(
                         java.text.Normalizer.normalize(lower, java.text.Normalizer.Form.NFD)).replaceAll("");
+                // Recompose: NFD also splits Hangul syllables into jamo (not marks, so they survive the strip),
+                // and the Korean initial-consonant index needs whole syllables back.
+                return java.text.Normalizer.normalize(stripped, java.text.Normalizer.Form.NFC);
             }
         }
         return lower;
@@ -16326,6 +16356,47 @@ public class MainActivity extends Activity {
                 if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
             }
         }, 50);
+    }
+
+    // 🚀 [Sorting] Sort key for names, iPod-style: case and accents ignored, and a leading "The " skipped
+    // ("The Word Alive" files under W). Only "The": dropping "A"/"El"... would misplace names like
+    // "A Day To Remember" that people look for under A.
+    static String sortKey(String s) {
+        if (s == null) return "";
+        // Remembered per name: list screens are rebuilt often and the same few thousand names come back.
+        String cached = SORT_KEY_CACHE.get(s);
+        if (cached != null) return cached;
+        String k = searchFold(s).trim();
+        if (k.startsWith("the ") && k.length() > 4) k = k.substring(4).trim();
+        SORT_KEY_CACHE.put(s, k);
+        return k;
+    }
+
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> SORT_KEY_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    // Sorts names by sortKey(), computing each key once (a comparator calling sortKey() would redo it on
+    // every comparison - thousands of times for the song list).
+    private static void sortByNameKey(List<String> names) {
+        final java.util.HashMap<String, String> keys = new java.util.HashMap<>();
+        for (String n : names) keys.put(n, sortKey(n));
+        java.util.Collections.sort(names, new java.util.Comparator<String>() {
+            @Override
+            public int compare(String a, String b) {
+                int c = keys.get(a).compareTo(keys.get(b));
+                return c != 0 ? c : a.compareToIgnoreCase(b);
+            }
+        });
+    }
+
+    // Four-digit year of a tag value, or 0 when unknown ("Unknown Year", "Año desconocido"...).
+    public static int yearOf(String year) {
+        if (year == null || year.length() < 4) return 0;
+        try {
+            return Integer.parseInt(year.substring(0, 4));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     // 🚀 [Song menu] The song the cursor is on in a song list, or null (other screens, the "Shuffle" row,

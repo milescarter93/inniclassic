@@ -39,6 +39,7 @@ public class CategoryListAdapter extends BaseAdapter {
     // 🚀 [ANR 수리 1] 앨범당 파일 목록도 한 번만 모아서 보관 - 예전엔 getView()가 불릴 때마다(=매 스크롤마다)
     // 전체 라이브러리를 처음부터 다시 훑었는데, 곡이 많을수록 매 행 렌더링마다 그 비용이 반복됐습니다.
     private Map<String, List<File>> albumFilesMap;
+    private final Map<String, Integer> albumYears = new HashMap<>();
 
     public CategoryListAdapter(List<String> items, String type) {
         this.items = items;
@@ -61,6 +62,11 @@ public class CategoryListAdapter extends BaseAdapter {
                     albumFilesMap.put(song.album, files);
                 }
                 files.add(song.file);
+
+                // 🚀 [Sorting] Earliest known year, shown next to the song count.
+                int y = MainActivity.yearOf(song.year);
+                Integer known = albumYears.get(song.album);
+                if (y > 0 && (known == null || y < known)) albumYears.put(song.album, y);
             }
         }
     }
@@ -240,7 +246,9 @@ public class CategoryListAdapter extends BaseAdapter {
         // 🚀 [버그 수정] 포커스 리스너가 아직 한 번도 안 불렸을 때도 기본 글자색이 정확히 보이도록 항상 명시적으로 지정!
         tvTitle.setTextColor(row.isFocused() ? ThemeManager.getListButtonFocusedTextColor() : ThemeManager.getTextColorPrimary());
         int songCount = albumSongCounts != null && albumSongCounts.containsKey(name) ? albumSongCounts.get(name) : 0;
-        tvSubtitle.setText(songCount == 1 ? t1Song() : (songCount + " " + tSongs()));
+        Integer albumYear = albumYears.get(name);
+        tvSubtitle.setText((albumYear != null ? albumYear + " · " : "")
+                + (songCount == 1 ? t1Song() : (songCount + " " + tSongs())));
         tvSubtitle.setTextColor(row.isFocused() ? ThemeManager.getListButtonFocusedTextColor() : ThemeManager.getTextColorSecondary());
 
         // 🚀 [ANR 수리 2] 예전에는 이 자리에서 SharedPreferences/파일 존재 확인/MediaMetadataRetriever까지
