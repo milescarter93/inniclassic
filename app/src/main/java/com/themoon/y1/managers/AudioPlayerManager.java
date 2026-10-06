@@ -157,6 +157,7 @@ public class AudioPlayerManager {
 
             // 팩토리를 넣어서 조립 완료!
             exoPlayer = new com.google.android.exoplayer2.SimpleExoPlayer.Builder(context.getApplicationContext(), renderersFactory).build();
+            applyPlayerGain(); // 🚀 [Player gain] soft volume step chosen before the player existed
 
             // (이 아래의 리스너 코드들은 기존과 100% 동일하게 유지해 주세요!)
             // (이 아래 리스너 코드들은 기존과 100% 동일하게 유지해 주세요!)
@@ -1049,6 +1050,7 @@ public class AudioPlayerManager {
 
                 if (AudioEffectManager.getInstance() != null) AudioEffectManager.getInstance().applyAudioEffects();
                 main.setupVisualizer();
+                applyPlayerGain(); // 🚀 [Player gain] the legacy player is recreated per track
 
                 int duration = legacyPlayer.getDuration();
                 int remaining = Math.max(0, duration - legacyPlayer.getCurrentPosition());
@@ -1139,10 +1141,25 @@ public class AudioPlayerManager {
         } catch (Exception e) {}
     }
 
-    // 🚀 [Sleep timer] The player's own gain (0..1), independent of the system volume and the Volume Limit,
-    // so a fade-out doesn't touch the user's volume setting.
-    public void setPlayerVolume(float volume) {
-        float v = Math.max(0f, Math.min(1f, volume));
+    // 🚀 [Player gain] The players' own gain (0..1), on top of the system music volume. Two independent
+    // parts multiply: the soft-volume step (levels quieter than the system's lowest one) and the sleep
+    // timer's fade, so neither undoes the other.
+    private float softVolumeGain = 1f;
+    private float fadeFactor = 1f;
+
+    public void setSoftVolumeGain(float gain) {
+        softVolumeGain = Math.max(0f, Math.min(1f, gain));
+        applyPlayerGain();
+    }
+
+    public void setFadeFactor(float factor) {
+        fadeFactor = Math.max(0f, Math.min(1f, factor));
+        applyPlayerGain();
+    }
+
+    // Also called whenever a player is (re)created, since a new player starts at full gain.
+    private void applyPlayerGain() {
+        float v = softVolumeGain * fadeFactor;
         try {
             if (exoPlayer != null) exoPlayer.setVolume(v);
             if (legacyPlayer != null) legacyPlayer.setVolume(v, v);

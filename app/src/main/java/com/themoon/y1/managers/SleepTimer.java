@@ -52,7 +52,7 @@ public class SleepTimer {
 
     public void cancel() {
         handler.removeCallbacks(tick);
-        if (fading) AudioPlayerManager.getInstance().setPlayerVolume(1f);
+        if (fading) AudioPlayerManager.getInstance().setFadeFactor(1f);
         active = false;
         fading = false;
         endOfSong = false;
@@ -98,7 +98,7 @@ public class SleepTimer {
             }
             if (remaining <= FADE_MS && am.isPlaying()) {
                 fading = true;
-                am.setPlayerVolume(remaining / (float) FADE_MS);
+                am.setFadeFactor(remaining / (float) FADE_MS);
                 handler.postDelayed(this, 250);
             } else {
                 // Paused by hand during the fade: back to full volume for whenever it's resumed.
@@ -110,7 +110,7 @@ public class SleepTimer {
 
     private void restoreVolumeIfFading(AudioPlayerManager am) {
         if (fading) {
-            am.setPlayerVolume(1f);
+            am.setFadeFactor(1f);
             fading = false;
         }
     }
@@ -121,7 +121,7 @@ public class SleepTimer {
         android.util.Log.i("Y1Sleep", "Sleep timer finished (" + (endOfSong ? "end of song" : "timed") + "): position "
                 + am.getCurrentPosition() + " of " + am.getDuration() + " ms, was playing " + wasPlaying);
         if (wasPlaying) am.playOrPauseMusic();
-        am.setPlayerVolume(1f);
+        am.setFadeFactor(1f);
         fading = false;
         endOfSong = false;
         if (wasPlaying && listener != null) listener.onSleepTimerFinished();

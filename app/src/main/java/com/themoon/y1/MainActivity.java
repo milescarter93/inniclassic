@@ -1786,6 +1786,9 @@ public class MainActivity extends Activity {
             is24HourFormat = prefs.getBoolean("is_24h_format", false);
             isTimeInTitleBar = prefs.getBoolean("time_in_title_bar", false);
             volumeLimitMax = prefs.getInt("volume_limit_max", -1);
+            softVolumeStep = Math.max(0, Math.min(SOFT_VOLUME_GAINS.length,
+                    prefs.getInt("soft_volume_step", SOFT_VOLUME_GAINS.length)));
+            refreshSoftVolumeGain();
             isSoundCheckEnabled = prefs.getBoolean("sound_check_enabled", false);
             isAlbumTiltEnabled = prefs.getBoolean("album_tilt_enabled", true);
             isCoverMotionEnabled = prefs.getBoolean("cover_motion_enabled", true);
@@ -1932,7 +1935,7 @@ public class MainActivity extends Activity {
 
         layoutVolumeOverlay = findViewById(R.id.layout_volume_overlay);
         volumeProgress = findViewById(R.id.volume_progress);
-        volumeProgress.setMax(audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+        volumeProgress.setMax(virtualVolumeMax()); // 🚀 [Soft volume] system steps + soft steps
 
         layoutSettingsMode = findViewById(R.id.layout_settings_mode);
         containerSettingsItems = findViewById(R.id.container_settings_items);
@@ -2215,7 +2218,7 @@ public class MainActivity extends Activity {
         rowPlayerVolume = findViewById(R.id.row_player_volume);
         playerVolumeProgress = findViewById(R.id.player_volume_progress);
         if (playerVolumeProgress != null) {
-            playerVolumeProgress.setMax(audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+            playerVolumeProgress.setMax(virtualVolumeMax()); // 🚀 [Soft volume]
         }
         rowPlayerSeek = findViewById(R.id.row_player_seek);
         rowPlayerShuffleRepeat = findViewById(R.id.row_player_shuffle_repeat);
@@ -12283,6 +12286,7 @@ public class MainActivity extends Activity {
     private String displayedPlayerPath;
 
     public void updatePlayerUI() {
+        refreshSoftVolumeGain(); // 🚀 [Soft volume] in case the system volume was changed some other way
         try {
             if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
                 File currentFile = currentPlaylist.get(currentIndex);
@@ -12356,19 +12360,71 @@ public class MainActivity extends Activity {
         }
     }
 
+    // =======================================================
+    // 🚀 [Soft volume] The system gives music only 15 steps, and the jump from silence to step 1 is big.
+    // Extra steps below step 1 come from the player's own gain at system step 1, so the wheel walks one
+    // virtual scale: 0 = silent, 1..SOFT_VOLUME_GAINS.length = the soft steps, then system steps 1..max.
+    // Only steps below 1 are added: how much louder each system step is isn't known on this device, so
+    // splitting the others could make a "half step" quieter than the step below it.
+    // =======================================================
+    private static final float[] SOFT_VOLUME_GAINS = { 0.15f, 0.3f, 0.5f, 0.75f };
+    // Which soft step is in use while the system is at step 1; SOFT_VOLUME_GAINS.length = none (full gain).
+    private int softVolumeStep = SOFT_VOLUME_GAINS.length;
+
+    private int virtualVolumeMax() {
+        return SOFT_VOLUME_GAINS.length + audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+    }
+
+    private int currentVirtualVolume() {
+        int stream = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+        if (stream <= 0) return 0;
+        if (stream == 1 && softVolumeStep < SOFT_VOLUME_GAINS.length) return softVolumeStep + 1;
+        return SOFT_VOLUME_GAINS.length + stream;
+    }
+
+    // Sets the player gain from the current system step: soft steps only exist at system step 1, so if the
+    // system volume was changed some other way, the player goes back to full gain.
+    private void refreshSoftVolumeGain() {
+        try {
+            int stream = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+            float gain = (stream == 1 && softVolumeStep < SOFT_VOLUME_GAINS.length) ? SOFT_VOLUME_GAINS[softVolumeStep] : 1f;
+            com.themoon.y1.managers.AudioPlayerManager.getInstance().setSoftVolumeGain(gain);
+        } catch (Exception e) {
+        }
+    }
+
     // 🚀 [버그 원인 제거 완료] 여기에 있던 불필요한 잉여 중괄호 '}' 하나를 완벽하게 삭제했습니다!
     private void adjustVolume(boolean up) {
-        int currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
         int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
         // 🚀 [iPod 스타일] Volume Limit이 설정되어 있으면 그 값을 실질적인 최대치로 취급합니다.
         int effectiveMax = (volumeLimitMax >= 0) ? Math.min(volumeLimitMax, maxVol) : maxVol;
-        if (up && currentVol < effectiveMax)
-            currentVol++;
-        else if (!up && currentVol > 0)
-            currentVol--;
-        if (currentVol > effectiveMax)
-            currentVol = effectiveMax; // 한도가 방금 낮아졌다면 기존 볼륨도 즉시 깎아냅니다.
+        int soft = SOFT_VOLUME_GAINS.length;
+        // The limit is in system steps; a limit of 0 (silent) leaves no soft steps either.
+        int virtualMax = effectiveMax <= 0 ? 0 : soft + effectiveMax;
+        int virtual = currentVirtualVolume();
+        if (up && virtual < virtualMax)
+            virtual++;
+        else if (!up && virtual > 0)
+            virtual--;
+        if (virtual > virtualMax)
+            virtual = virtualMax; // 한도가 방금 낮아졌다면 기존 볼륨도 즉시 깎아냅니다.
+
+        int currentVol;
+        if (virtual <= 0) {
+            currentVol = 0;
+            softVolumeStep = soft;
+        } else if (virtual <= soft) {
+            currentVol = 1;
+            softVolumeStep = virtual - 1;
+        } else {
+            currentVol = virtual - soft;
+            softVolumeStep = soft;
+        }
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, currentVol, 0);
+        refreshSoftVolumeGain();
+        prefs.edit().putInt("soft_volume_step", softVolumeStep).apply();
+        android.util.Log.i("Y1Volume", "volume " + virtual + "/" + virtualMax + " -> system step " + currentVol
+                + ", player gain " + (softVolumeStep < soft && currentVol == 1 ? SOFT_VOLUME_GAINS[softVolumeStep] : 1f));
 
         // 🚀 [버그 수리 완료] 라디오가 켜져 있다면, 미디어텍 라디오 전용 통로(STREAM_FM = 10)의 하드웨어 볼륨도 똑같이 깎아서
         // 동기화합니다!
@@ -12391,7 +12447,7 @@ public class MainActivity extends Activity {
     }
 
     private void showDynamicVolumeOverlay() {
-        int currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+        int currentVol = currentVirtualVolume(); // 🚀 [Soft volume] gauges show the virtual scale
 
         // 🚀 [iPod 스타일] Now Playing 화면에서는 떠다니는 팝업 대신, Progress 바와 같은 모양의 인라인 게이지로 표시!
         if (currentScreenState == STATE_PLAYER && rowPlayerVolume != null) {
