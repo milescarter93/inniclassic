@@ -653,7 +653,8 @@ public class MainActivity extends Activity {
             // 아무것도 없으므로(완전 블랙) 이 틱 안의 작업을 전부 건너뛰고, 다음 틱 간격도 1초 -> 15초로
             // 늘려서 CPU가 훨씬 더 오래 쉴 수 있게 합니다 - 백그라운드 음악 재생 중 화면이 꺼져있는 시간이
             // 실제로 가장 긴 사용 패턴이라 이게 제일 효과가 큽니다.
-            if (isFakeScreenOff) {
+            // (Also with the display really off - music playing keeps the CPU awake, and this ran every second.)
+            if (isDisplayIdle()) {
                 clockHandler.postDelayed(this, 15000);
                 return;
             }
@@ -772,6 +773,7 @@ public class MainActivity extends Activity {
                 public void run() {
                     isFakeScreenOff = true;
                     autoManageWifiPower(true); // 🚀 [절전 모드 진입]
+                    onDisplayIdleChanged();
                     if (layoutLoadingOverlay != null) {
                         layoutLoadingOverlay.setBackgroundColor(0xFF000000); // 100% 완전 블랙 암전 덮개
                         if (pbLoadingProgress != null)
@@ -837,6 +839,7 @@ public class MainActivity extends Activity {
             getWindow().setAttributes(lp);
         } catch (Exception e) {
         }
+        onDisplayIdleChanged();
     }
 
     // 🚀 [신규 엔진] 리로드 없이 주파수와 사탕 캡슐 색상만 초고속으로 갈아끼우는 무감쇠 엔진
@@ -916,6 +919,12 @@ public class MainActivity extends Activity {
             // 재생 중일 때)는 어차피 안 보이는 뷰를 0.5초마다 갱신하는 무거운 작업을 건너뜁니다.
             if (currentScreenState != STATE_PLAYER) {
                 progressHandler.postDelayed(this, 500);
+                return;
+            }
+            // 🚀 [Battery] Same while the display is idle (off, or under the fake screen-off overlay):
+            // nobody sees it, so poll slowly; onDisplayIdleChanged() refreshes it the moment it's back.
+            if (isDisplayIdle()) {
+                progressHandler.postDelayed(this, 5000);
                 return;
             }
             try {
@@ -1046,10 +1055,12 @@ public class MainActivity extends Activity {
             if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                 isScreenSleeping = true;
                 autoManageWifiPower(true); // 🚀 [절전 모드 진입]
+                onDisplayIdleChanged();
             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                 isScreenSleeping = false;
                 lastScreenOnTime = System.currentTimeMillis();
                 autoManageWifiPower(false); // 🚀 [절전 모드 해제]
+                onDisplayIdleChanged();
             } else if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
@@ -1757,6 +1768,7 @@ public class MainActivity extends Activity {
             volumeLimitMax = prefs.getInt("volume_limit_max", -1);
             isSoundCheckEnabled = prefs.getBoolean("sound_check_enabled", false);
             isAlbumTiltEnabled = prefs.getBoolean("album_tilt_enabled", true);
+            isCoverMotionEnabled = prefs.getBoolean("cover_motion_enabled", true);
         } catch (Exception e) {
         }
         // 💡 [EQ 프리셋 목록 자동 로드] 기기가 지원하는 이퀄라이저 리스트를 가져옵니다.
@@ -3282,31 +3294,94 @@ public class MainActivity extends Activity {
         }
     }
 
+    // 🚀 [Battery] True when nothing on screen can be seen: the display is off, or the fake screen-off
+    // overlay (used while the radio / web server / video keep running) covers it.
+    private boolean isDisplayIdle() {
+        return isFakeScreenOff || isScreenSleeping;
+    }
+
+    // 🚀 [Battery] Settings > "Cover Motion": the slow Ken Burns pan of the cover panels.
+    private boolean isCoverMotionEnabled = true;
+    private static final int COVER_PAN_X_MS = 19000;
+    private static final int COVER_PAN_Y_MS = 25000;
+    // Every cover that wants the pan, with its {maxDx, maxDy}, and the animators of those currently panning.
+    // Weak keys: covers of a rebuilt main menu drop out once they're gone.
+    private final java.util.WeakHashMap<ImageView, int[]> coverPanTargets = new java.util.WeakHashMap<>();
+    private final java.util.WeakHashMap<ImageView, android.animation.Animator[]> coverPanRunning = new java.util.WeakHashMap<>();
+    private final Runnable refreshCoverPanTask = new Runnable() {
+        @Override
+        public void run() {
+            refreshCoverPanAnimations();
+        }
+    };
+
     // 🚀 [신규 추가] iPod 스타일 커버 위젯을 아주 천천히, 유기적으로 이리저리 드리프트시킵니다.
+    // (Only registers the cover - refreshCoverPanAnimations() decides when it actually moves.)
     private void startCoverPanAnimation(final ImageView iv, final int maxDx, final int maxDy) {
-        iv.post(new Runnable() {
-            @Override
-            public void run() {
-                if (maxDx > 0) {
-                    android.animation.ObjectAnimator animX = android.animation.ObjectAnimator.ofFloat(iv,
-                            "translationX", -maxDx / 2f, maxDx / 2f);
-                    animX.setDuration(19000);
-                    animX.setRepeatMode(android.animation.ValueAnimator.REVERSE);
-                    animX.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-                    animX.setInterpolator(new android.view.animation.LinearInterpolator());
-                    animX.start();
-                }
-                if (maxDy > 0) {
-                    android.animation.ObjectAnimator animY = android.animation.ObjectAnimator.ofFloat(iv,
-                            "translationY", -maxDy / 2f, maxDy / 2f);
-                    animY.setDuration(25000);
-                    animY.setRepeatMode(android.animation.ValueAnimator.REVERSE);
-                    animY.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-                    animY.setInterpolator(new android.view.animation.LinearInterpolator());
-                    animY.start();
-                }
+        coverPanTargets.put(iv, new int[] { maxDx, maxDy });
+        iv.post(refreshCoverPanTask);
+    }
+
+    // 🚀 [Battery] Runs the pan only on covers that can actually be seen right now, and stops the rest.
+    // The infinite animators used to run forever: behind the fake screen-off overlay, on hidden screens,
+    // and - since every main menu rebuild (e.g. leaving Settings) made a new cover without stopping the old
+    // one's animators - on covers that weren't even on screen any more, adding up over time. The main menu
+    // cover is software-rendered, so each of those frames cost CPU.
+    private void refreshCoverPanAnimations() {
+        java.util.Iterator<java.util.Map.Entry<ImageView, int[]>> it = coverPanTargets.entrySet().iterator();
+        while (it.hasNext()) {
+            java.util.Map.Entry<ImageView, int[]> entry = it.next();
+            ImageView iv = entry.getKey();
+            if (iv == null) continue;
+            boolean attached = iv.getWindowToken() != null;
+            boolean shouldRun = attached && isCoverMotionEnabled && !isDisplayIdle() && iv.isShown();
+            android.animation.Animator[] running = coverPanRunning.get(iv);
+            if (shouldRun && running == null) {
+                coverPanRunning.put(iv, createCoverPanAnimators(iv, entry.getValue()[0], entry.getValue()[1]));
+            } else if (!shouldRun && running != null) {
+                for (android.animation.Animator a : running) a.cancel();
+                coverPanRunning.remove(iv);
             }
-        });
+            if (!shouldRun && !isCoverMotionEnabled) {
+                iv.setTranslationX(0); // motion turned off: rest the cover centered
+                iv.setTranslationY(0);
+            }
+            if (!attached) it.remove();
+        }
+    }
+
+    // Starts the pan from wherever the cover currently is, so resuming after a pause doesn't make it jump.
+    private android.animation.Animator[] createCoverPanAnimators(ImageView iv, int maxDx, int maxDy) {
+        List<android.animation.Animator> animators = new ArrayList<>();
+        if (maxDx > 0) animators.add(startPanAxis(iv, "translationX", iv.getTranslationX(), maxDx, COVER_PAN_X_MS));
+        if (maxDy > 0) animators.add(startPanAxis(iv, "translationY", iv.getTranslationY(), maxDy, COVER_PAN_Y_MS));
+        return animators.toArray(new android.animation.Animator[0]);
+    }
+
+    private android.animation.Animator startPanAxis(ImageView iv, String property, float current, int max, int durationMs) {
+        android.animation.ObjectAnimator anim = android.animation.ObjectAnimator.ofFloat(iv, property, -max / 2f, max / 2f);
+        anim.setDuration(durationMs);
+        anim.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+        anim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        anim.setInterpolator(new android.view.animation.LinearInterpolator());
+        anim.start();
+        float fraction = Math.max(0f, Math.min(1f, (current + max / 2f) / max));
+        anim.setCurrentPlayTime((long) (fraction * durationMs));
+        return anim;
+    }
+
+    // 🚀 [Battery] The clock and Now Playing progress tick slowly while the display is idle; when it comes
+    // back, refresh them at once instead of waiting for the next slow tick.
+    private void onDisplayIdleChanged() {
+        refreshCoverPanAnimations();
+        if (!isDisplayIdle()) {
+            clockHandler.removeCallbacks(clockTask);
+            clockHandler.post(clockTask);
+            if (com.themoon.y1.managers.AudioPlayerManager.getInstance().isPlaying()) {
+                progressHandler.removeCallbacks(updateProgressTask);
+                progressHandler.post(updateProgressTask);
+            }
+        }
     }
 
     // 🚀 [신규 추가] 재생 중인 곡이 없을 때, 라이브러리에서 아무 앨범 아트나 하나 골라와 백그라운드로 디코딩합니다.
@@ -4324,6 +4399,9 @@ public class MainActivity extends Activity {
         currentScreenState = state;
         updateStatusBarTitle();
         layoutMainMenu.setVisibility(state == STATE_MENU ? View.VISIBLE : View.GONE);
+        // 🚀 [Battery] Once this screen change has settled, pan only the covers that are now visible.
+        layoutMainMenu.removeCallbacks(refreshCoverPanTask);
+        layoutMainMenu.post(refreshCoverPanTask);
         layoutBrowserMode.setVisibility(state == STATE_BROWSER ? View.VISIBLE : View.GONE);
         layoutPlayerMode.setVisibility(state == STATE_PLAYER ? View.VISIBLE : View.GONE);
         layoutSettingsMode.setVisibility(state == STATE_SETTINGS ? View.VISIBLE : View.GONE);
@@ -6255,6 +6333,20 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnAlbumTilt);
 
+        // 🚀 [Battery] The slow pan of the cover panels (main menu / Music) - off saves CPU and battery.
+        final LinearLayout btnCoverMotion = createSettingRow("Cover Motion", isCoverMotionEnabled ? t("ON") : t("OFF"));
+        btnCoverMotion.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isCoverMotionEnabled = !isCoverMotionEnabled;
+                prefs.edit().putBoolean("cover_motion_enabled", isCoverMotionEnabled).commit();
+                ((TextView) btnCoverMotion.getChildAt(1)).setText(isCoverMotionEnabled ? t("ON") : t("OFF"));
+                refreshCoverPanAnimations();
+            }
+        });
+        containerSettingsItems.addView(btnCoverMotion);
+
         // 🚀 [신규 추가] 구글 ExoPlayer 타임 스트레칭 (배속 재생) 컨트롤 스위치!
         final String[] speedLabels = { "1.0x (Normal)", "1.2x (Fast)", "1.5x (Faster)", "2.0x (Very Fast)" };
         final float[] speedValues = { 1.0f, 1.2f, 1.5f, 2.0f };
@@ -8089,6 +8181,8 @@ public class MainActivity extends Activity {
                 }
             });
         }
+        frameBrowserCover.removeCallbacks(refreshCoverPanTask);
+        frameBrowserCover.post(refreshCoverPanTask); // 🚀 [Battery] pane visible again: resume its pan
 
         refreshWidgets();
     }
@@ -8101,8 +8195,10 @@ public class MainActivity extends Activity {
             left.weight = 1;
             leftPane.setLayoutParams(left);
         }
-        if (frameBrowserCover != null)
+        if (frameBrowserCover != null) {
             frameBrowserCover.setVisibility(View.GONE);
+            refreshCoverPanAnimations(); // 🚀 [Battery] pane hidden: stop its pan
+        }
         View statusBar = findViewById(R.id.layout_status_bar);
         if (statusBar != null) {
             ViewGroup.LayoutParams slp = statusBar.getLayoutParams();
@@ -13853,6 +13949,7 @@ public class MainActivity extends Activity {
                     .remove("sound_check_enabled")
                     .remove("video_stretch_fill")
                     .remove("album_tilt_enabled")
+                    .remove("cover_motion_enabled")
                     .remove("backlight_timer_index")
                     .remove("screen_off_control")
                     .remove("repeat_mode")
@@ -13870,6 +13967,8 @@ public class MainActivity extends Activity {
         volumeLimitMax = -1;
         isSoundCheckEnabled = false;
         isAlbumTiltEnabled = true;
+        isCoverMotionEnabled = true;
+        refreshCoverPanAnimations();
         backlightTimerIndex = 3;
         isScreenOffControlEnabled = false;
         repeatMode = 0;

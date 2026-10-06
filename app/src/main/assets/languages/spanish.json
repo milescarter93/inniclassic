@@ -325,5 +325,7 @@
   "The theme files could not be read": "No se pudieron leer los archivos del tema",
   "It has no main menu buttons": "No tiene botones en el menú principal",
   "It has no Settings button in the main menu": "No tiene botón de Ajustes en el menú principal",
-  "Fix or replace it in the Y1_Themes folder on the SD card.": "Corrígelo o sustitúyelo en la carpeta Y1_Themes de la tarjeta SD."
+  "Fix or replace it in the Y1_Themes folder on the SD card.": "Corrígelo o sustitúyelo en la carpeta Y1_Themes de la tarjeta SD.",
+  "Cover Motion": "Movimiento de carátula",
+  "Album Cover Tilt": "Inclinación de carátula"
 }
