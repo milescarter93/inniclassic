@@ -241,7 +241,7 @@ public class AudioPlayerManager {
         } else if (isUsingLegacyPlayer) {
             if (MainActivity.instance != null) {
                 MainActivity.instance.runOnUiThread(() ->
-                        Toast.makeText(MainActivity.instance, "⚠️ Speed control is disabled for FLAC files on this device.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(MainActivity.instance, "⚠️ " + MainActivity.instance.t("Speed control is disabled for FLAC files on this device."), Toast.LENGTH_SHORT).show()
                 );
             }
         }
@@ -299,7 +299,7 @@ public class AudioPlayerManager {
         main.runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                Toast.makeText(main, "⚠️ " + errorMsg + " Skipping...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(main, "⚠️ " + main.t(errorMsg) + " " + main.t("Skipping..."), Toast.LENGTH_SHORT).show();
                 nextTrack();
             }
         });
@@ -513,7 +513,7 @@ public class AudioPlayerManager {
                         public void run() {
                             try {
                                 android.widget.Toast toast = android.widget.Toast.makeText(MainActivity.instance,
-                                        "🎧 Resuming playback from " + min + "m " + sec + "s",
+                                        "🎧 " + String.format(Locale.US, MainActivity.instance.t("Resuming playback from %dm %ds"), min, sec),
                                         android.widget.Toast.LENGTH_SHORT);
                                 android.widget.LinearLayout toastLayout = (android.widget.LinearLayout) toast.getView();
                                 android.widget.TextView toastTV = (android.widget.TextView) toastLayout.getChildAt(0);
@@ -717,7 +717,7 @@ public class AudioPlayerManager {
         PlaybackStateStore.saveQueue(main, main.originalPlaylist, main.currentPlaylist);
         PlaybackStateStore.saveProgress(main, main.currentIndex, getCurrentPosition(), isPlaying() && !main.isPausedByHand);
         // "4 of 14" is otherwise only set when a track loads.
-        main.tvPlayerTrackCount.setText((main.currentIndex + 1) + " of " + main.currentPlaylist.size());
+        main.tvPlayerTrackCount.setText(String.format(Locale.US, main.t("%1$d of %2$d"), main.currentIndex + 1, main.currentPlaylist.size()));
         main.updatePlayerUI();
     }
 
@@ -749,20 +749,20 @@ public class AudioPlayerManager {
         main.currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
 
         if (!track.exists() || track.length() < 1024) {
-            main.tvPlayerTitle.setText("Corrupted File");
-            main.tvPlayerArtist.setText("Skipping...");
+            main.tvPlayerTitle.setText(main.t("Corrupted File"));
+            main.tvPlayerArtist.setText(main.t("Skipping..."));
             main.tvPlayerAlbum.setText("");
             main.ivAlbumArt.setImageResource(R.drawable.default_album);
 
             main.consecutiveErrorCount++;
 
             if (main.consecutiveErrorCount >= main.currentPlaylist.size()) {
-                Toast.makeText(main, "❌ All tracks failed. Playback stopped.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(main, "❌ " + main.t("All tracks failed. Playback stopped."), Toast.LENGTH_SHORT).show();
                 main.isPausedByHand = true;
                 main.updatePlayerUI();
                 main.consecutiveErrorCount = 0;
             } else {
-                Toast.makeText(main, "Corrupted file detected. Skipping...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(main, main.t("Corrupted file detected. Skipping..."), Toast.LENGTH_SHORT).show();
                 new Handler().postDelayed(() -> nextTrack(), 1500);
             }
             return;
@@ -773,7 +773,7 @@ public class AudioPlayerManager {
 
         // 🚀 스레드(Thread)를 걷어내고 메인에서 즉시 처리하여 깜빡임/딜레이 현상을 완벽 차단!
         main.tvPlayerTitle.setText(track.getName());
-        main.tvPlayerArtist.setText("Loading...");
+        main.tvPlayerArtist.setText(main.t("Loading..."));
         main.tvPlayerAlbum.setText("");
         main.ivAlbumArt.setImageResource(R.drawable.default_album);
         main.ivPlayerBgBlur.setImageResource(0);
@@ -896,7 +896,7 @@ public class AudioPlayerManager {
             else main.tvPlayerTitle.setText(safeFileName);
 
             if (a != null && !a.trim().isEmpty()) main.tvPlayerArtist.setText(a);
-            else main.tvPlayerArtist.setText(track.getAbsolutePath().contains("/Audiobooks") || main.isAudiobookLibraryMode ? "Unknown Author" : "Unknown Artist");
+            else main.tvPlayerArtist.setText(track.getAbsolutePath().contains("/Audiobooks") || main.isAudiobookLibraryMode ? main.t("Unknown Author") : main.t("Unknown Artist"));
 
             main.tvPlayerAlbum.setText(album != null && !album.trim().isEmpty() ? album.trim() : "");
 
@@ -1096,7 +1096,7 @@ public class AudioPlayerManager {
 
             main.consecutiveErrorCount = 0;
             // 🚀 iPod Classic 스타일: "01 / 14" 대신 "4 of 14" 형식으로 표시!
-            main.tvPlayerTrackCount.setText((index + 1) + " of " + main.currentPlaylist.size());
+            main.tvPlayerTrackCount.setText(String.format(Locale.US, main.t("%1$d of %2$d"), index + 1, main.currentPlaylist.size()));
 
         } catch (Throwable e) {
             main.consecutiveErrorCount++;
@@ -1105,10 +1105,10 @@ public class AudioPlayerManager {
             else if (e instanceof java.io.FileNotFoundException) failReason = "File not found";
             else if (e instanceof java.io.IOException) failReason = "Broken file";
 
-            main.tvPlayerTitle.setText("Load Failed ❌");
-            main.tvPlayerArtist.setText(failReason);
+            main.tvPlayerTitle.setText(main.t("Load Failed") + " ❌");
+            main.tvPlayerArtist.setText(main.t(failReason));
             main.tvPlayerAlbum.setText("");
-            Toast.makeText(main, "🚨 " + failReason, Toast.LENGTH_SHORT).show();
+            Toast.makeText(main, "🚨 " + main.t(failReason), Toast.LENGTH_SHORT).show();
 
             if (main.consecutiveErrorCount >= main.currentPlaylist.size()) {
                 main.isPausedByHand = true;

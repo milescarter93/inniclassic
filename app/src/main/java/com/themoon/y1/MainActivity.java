@@ -1385,7 +1385,7 @@ public class MainActivity extends Activity {
             } else {
                 errorStr += " - " + e.getMessage();
             }
-            Toast.makeText(this, "Audio error: " + errorStr, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, t("Audio error: ") + errorStr, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -4860,11 +4860,13 @@ public class MainActivity extends Activity {
 
     private String getQuizPromptText(int type, SongItem song) {
         String title = "“" + song.title + "”";
+        // Whole-sentence templates ("%s" = the song title), so each language can put the title where its
+        // grammar needs it - translating the pieces around it separately can't express "¿De qué álbum es X?".
         switch (type) {
-            case QUIZ_TYPE_ARTIST: return t("Which artist released") + " " + title + "?";
-            case QUIZ_TYPE_ALBUM: return t("Which album is") + " " + title + " " + t("from?");
-            case QUIZ_TYPE_YEAR: return t("What year was") + " " + title + " " + t("released?");
-            case QUIZ_TYPE_GENRE: return t("What genre is") + " " + title + "?";
+            case QUIZ_TYPE_ARTIST: return String.format(t("Which artist released %s?"), title);
+            case QUIZ_TYPE_ALBUM: return String.format(t("Which album is %s from?"), title);
+            case QUIZ_TYPE_YEAR: return String.format(t("What year was %s released?"), title);
+            case QUIZ_TYPE_GENRE: return String.format(t("What genre is %s?"), title);
             case QUIZ_TYPE_ALBUM_COVER: return t("Which cover matches this song's album?");
             default: return t("What song is playing?");
         }
@@ -5131,7 +5133,7 @@ public class MainActivity extends Activity {
             pbQuizTimer.setProgress(0);
 
         if (tvQuizPrompt != null) {
-            tvQuizPrompt.setText(t("Round ") + quizRoundNumber + " " + t("Complete!"));
+            tvQuizPrompt.setText(String.format(Locale.US, t("Round %d Complete!"), quizRoundNumber));
         }
         updateQuizScoreLivesUI();
 
@@ -6811,7 +6813,7 @@ public class MainActivity extends Activity {
                                         albumArtCache.evictAll();
 
                                     Toast.makeText(MainActivity.this,
-                                            "Deleted " + count + " covers & cleared track info.",
+                                            String.format(Locale.US, t("Deleted %d covers & cleared track info."), count),
                                             Toast.LENGTH_SHORT).show();
 
                                     // 3. 메인 화면에 남아있는 이미지를 기본 아이콘으로 초기화합니다.
@@ -6827,14 +6829,14 @@ public class MainActivity extends Activity {
                                         if (resetDot > 0)
                                             resetTitle = resetTitle.substring(0, resetDot);
                                         tvPlayerTitle.setText(resetTitle);
-                                        tvPlayerArtist.setText("Unknown Artist");
+                                        tvPlayerArtist.setText(t("Unknown Artist"));
                                         tvPlayerAlbum.setText("");
                                     }
 
                                     updateMainMenuBackground();
                                     refreshNowPlayingPreview();
                                 } catch (Exception e) {
-                                    Toast.makeText(MainActivity.this, "Failed to clear cache.", Toast.LENGTH_SHORT)
+                                    Toast.makeText(MainActivity.this, t("Failed to clear cache."), Toast.LENGTH_SHORT)
                                             .show();
                                 }
                             }
@@ -6878,7 +6880,7 @@ public class MainActivity extends Activity {
                 if (scrobbler.isLoggedIn()) {
                     new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                             .setTitle(t("Last.fm Account"))
-                            .setMessage(t("Log out of ") + "@" + scrobbler.getUsername() + "?")
+                            .setMessage(String.format(t("Log out of %s?"), "@" + scrobbler.getUsername()))
                             .setPositiveButton(t("Log Out"), new DialogInterface.OnClickListener() {
                                 public void onClick(DialogInterface dialog, int which) {
                                     scrobbler.logout();
@@ -7329,7 +7331,7 @@ public class MainActivity extends Activity {
                     if (fmManager.powerUp(fmManager.currentFreq))
                         activePlayer = 1;
                     else
-                        Toast.makeText(MainActivity.this, "Radio Error: " + fmManager.lastError,
+                        Toast.makeText(MainActivity.this, t("Radio Error: ") + fmManager.lastError,
                                 Toast.LENGTH_LONG).show();
                 }
                 updateGlobalStatusPlayIcon();
@@ -8996,7 +8998,7 @@ public class MainActivity extends Activity {
                         public void run() {
                             activePodcastDownloads.remove(audioUrl);
                             podcastDownloadProgress.remove(audioUrl);
-                            Toast.makeText(MainActivity.this, "🚨 Download Failed: " + e.getMessage(),
+                            Toast.makeText(MainActivity.this, "🚨 " + t("Download Failed: ") + e.getMessage(),
                                     Toast.LENGTH_LONG).show();
 
                             if (currentBrowserMode == 14 && listVirtualSongs != null
@@ -11450,7 +11452,7 @@ public class MainActivity extends Activity {
                     switch (el.action) {
                         case "OPEN_PLAYER":
                             if (currentPlaylist.isEmpty())
-                                Toast.makeText(MainActivity.this, "No music is currently playing.", Toast.LENGTH_SHORT)
+                                Toast.makeText(MainActivity.this, t("No music is currently playing."), Toast.LENGTH_SHORT)
                                         .show();
                             else
                                 changeScreen(STATE_PLAYER);
@@ -13792,7 +13794,7 @@ public class MainActivity extends Activity {
                         }
                         if (!fm.powerUp(fm.currentFreq)) {
                             Toast
-                                    .makeText(this, "Radio Error: " + fm.lastError, Toast.LENGTH_SHORT)
+                                    .makeText(this, t("Radio Error: ") + fm.lastError, Toast.LENGTH_SHORT)
                                     .show();
                         }
                     }
@@ -14147,9 +14149,9 @@ public class MainActivity extends Activity {
                     // 시스템 전역에 시간이 변경되었음을 강제로 방송하여 메인 페이지 시계와 시스템 앱들을 동기화시킵니다.
                     sendBroadcast(new Intent(Intent.ACTION_TIME_CHANGED));
 
-                    Toast.makeText(MainActivity.this, "Time applied successfully!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, t("Time applied successfully!"), Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(MainActivity.this, "Failed: Root access required.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, t("Failed: Root access required."), Toast.LENGTH_SHORT).show();
                 }
 
                 // 🚀 [포커스 버그 해결 1] 오염된 인덱스를 'Date & Time Settings' 메뉴 위치(14번째 항목)로 강제 정화
@@ -15770,7 +15772,7 @@ public class MainActivity extends Activity {
         }
 
         if (songs.isEmpty()) {
-            Toast.makeText(this, "No valid tracks found in this playlist.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("No valid tracks found in this playlist."), Toast.LENGTH_SHORT).show();
         }
 
         SongListAdapter adapter = new SongListAdapter(songs);
@@ -17520,7 +17522,7 @@ public class MainActivity extends Activity {
 
         // 1. 타이틀 (오렌지색 경고)
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("⚠️ 10-Band Software EQ");
+        tvTitle.setText("⚠️ " + t("10-Band Software EQ"));
         tvTitle.setTextColor(0xFFFF8800);
         tvTitle.setTextSize(18f);
         tvTitle.setTypeface(ThemeManager.getCustomFontBold());
@@ -17721,7 +17723,7 @@ public class MainActivity extends Activity {
                     if (layoutLoadingOverlay != null)
                         layoutLoadingOverlay.setVisibility(View.GONE);
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                    Toast.makeText(MainActivity.this, "Search Failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, t("Search Failed: ") + e.getMessage(), Toast.LENGTH_LONG).show();
                 });
             }
         }).start();
@@ -17979,7 +17981,7 @@ public class MainActivity extends Activity {
 
                         buildPodcastChannelsUI();
                     } catch (Exception e) {
-                        Toast.makeText(MainActivity.this, "Error saving: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, t("Error saving: ") + e.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 });
 
@@ -18057,7 +18059,7 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "🗑️ " + t("Channel deleted."), Toast.LENGTH_SHORT).show();
 
         } catch (Exception e) {
-            Toast.makeText(this, "Error deleting: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("Error deleting: ") + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
