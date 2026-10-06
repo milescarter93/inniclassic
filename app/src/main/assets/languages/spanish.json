@@ -316,5 +316,14 @@
   "Replace the current settings with the backup? The app will restart.": "¿Sustituir los ajustes actuales por la copia? La aplicación se reiniciará.",
   "Restore": "Restaurar",
   "Restore failed. The backup file may be damaged.": "Error al restaurar. El archivo de copia puede estar dañado.",
-  "Settings restored. Restarting...": "Ajustes restaurados. Reiniciando..."
+  "Settings restored. Restarting...": "Ajustes restaurados. Reiniciando...",
+  "The theme could not be displayed:": "No se pudo mostrar el tema:",
+  "Using the default theme.": "Se usa el tema predeterminado.",
+  "Theme damaged:": "Tema dañado:",
+  "The theme .zip file is damaged": "El archivo .zip del tema está dañado",
+  "config.json is not valid JSON": "El archivo config.json no es válido",
+  "The theme files could not be read": "No se pudieron leer los archivos del tema",
+  "It has no main menu buttons": "No tiene botones en el menú principal",
+  "It has no Settings button in the main menu": "No tiene botón de Ajustes en el menú principal",
+  "Fix or replace it in the Y1_Themes folder on the SD card.": "Corrígelo o sustitúyelo en la carpeta Y1_Themes de la tarjeta SD."
 }

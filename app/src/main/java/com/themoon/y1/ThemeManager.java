@@ -81,6 +81,18 @@ public class ThemeManager {
     // Used only if a getter runs before any theme has been loaded.
     private static ThemeData fallbackTheme = null;
 
+    // 🚀 [Theme validation] Themes found on the SD card that couldn't be used, with the reason
+    // (an English UI string, translated where it is shown). Rebuilt on every loadThemesFromStorage().
+    public static class BrokenTheme {
+        public final String name, reason;
+        BrokenTheme(String name, String reason) { this.name = name; this.reason = reason; }
+    }
+    public static List<BrokenTheme> brokenThemes = new ArrayList<>();
+
+    // Theme images are drawn on a 480x360 screen; anything bigger only costs memory, and a single
+    // full-size photo can exhaust the heap (OutOfMemoryError isn't caught by catch (Exception)).
+    private static final int MAX_THEME_IMAGE_SIDE = 1024;
+
     private static int safeParseColor(String colorStr, int defaultColor) {
         try {
             if (colorStr != null && !colorStr.trim().isEmpty()) {
@@ -99,7 +111,8 @@ public class ThemeManager {
             if (!folder.equals("default")) {
                 File iconFile = new File(folder, iconFileName);
                 if (iconFile.exists()) {
-                    try { return android.graphics.BitmapFactory.decodeFile(iconFile.getAbsolutePath()); } catch (Exception e) {}
+                    android.graphics.Bitmap bmp = decodeThemeImage(iconFile);
+                    if (bmp != null) return bmp;
                 }
             }
             // 💡 Case 2: 앱 순정 디폴트 테마일 경우 res/drawable 폴더에서 유니크 네임으로 역추적 추출!
@@ -114,13 +127,35 @@ public class ThemeManager {
                     if (resId != 0) {
                         return android.graphics.BitmapFactory.decodeResource(context.getResources(), resId);
                     }
-                } catch (Exception e) {}
+                } catch (Exception | OutOfMemoryError e) {}
             }
         }
         if (defaultResId != 0) {
-            try { return android.graphics.BitmapFactory.decodeResource(context.getResources(), defaultResId); } catch (Exception e) {}
+            try { return android.graphics.BitmapFactory.decodeResource(context.getResources(), defaultResId); } catch (Exception | OutOfMemoryError e) {}
         }
         return null;
+    }
+
+    // Decodes a theme image downsampled so neither side exceeds MAX_THEME_IMAGE_SIDE. Returns null
+    // for unreadable files or when memory runs out, so callers fall back to their default image.
+    private static android.graphics.Bitmap decodeThemeImage(File file) {
+        try {
+            android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+
+            int sample = 1;
+            while (bounds.outWidth / sample > MAX_THEME_IMAGE_SIDE || bounds.outHeight / sample > MAX_THEME_IMAGE_SIDE) {
+                sample *= 2;
+            }
+            android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+            opts.inSampleSize = sample;
+            return android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+        } catch (Exception | OutOfMemoryError e) {
+            e.printStackTrace();
+            return null;
+        }
     }
 
     public static int getStatusBarBackgroundColor() {
@@ -130,6 +165,7 @@ public class ThemeManager {
 
     public static void loadThemesFromStorage(File themeFolder) {
         availableThemes.clear();
+        brokenThemes.clear();
         availableThemes.add(buildDefaultTheme());
         try {
             loadThemesFromFolder(themeFolder);
@@ -201,9 +237,14 @@ public class ThemeManager {
                         java.io.FileInputStream fis = new java.io.FileInputStream(file);
                         java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(fis));
                         java.util.zip.ZipEntry ze;
+                        String extractRoot = extractDir.getCanonicalPath() + File.separator;
 
                         while ((ze = zis.getNextEntry()) != null) {
                             File extractFile = new File(extractDir, ze.getName());
+                            // 🚀 [Theme validation] Refuse entries like "../../x" that would write outside the theme folder.
+                            if (!extractFile.getCanonicalPath().startsWith(extractRoot)) {
+                                throw new java.io.IOException("Unsafe path in zip: " + ze.getName());
+                            }
                             if (ze.isDirectory()) {
                                 extractFile.mkdirs();
                             } else {
@@ -224,16 +265,35 @@ public class ThemeManager {
 
                         // 3. 압축 풀기가 완벽하게 끝났다면, 껍데기(zip 파일)는 용량 확보를 위해 휴지통으로 버립니다!
                         file.delete();
+                        // A fixed copy of a previously damaged zip clears the old "broken" marker.
+                        new File(themeFolder, file.getName() + ".broken").delete();
                     } catch (Exception e) {
                         e.printStackTrace();
+                        // 🚀 [Theme validation] Report it and rename the zip so it isn't retried on every
+                        // load. Whatever got extracted is still checked (and reported) like any folder.
+                        String zipName = file.getName().substring(0, file.getName().lastIndexOf("."));
+                        addBrokenTheme(zipName, "The theme .zip file is damaged");
+                        file.renameTo(new File(themeFolder, file.getName() + ".broken"));
                     }
+                }
+            }
+        }
+        // Damaged zips from earlier loads stay reported until the user removes or replaces them.
+        File[] brokenZips = themeFolder.listFiles();
+        if (brokenZips != null) {
+            for (File file : brokenZips) {
+                String lower = file.getName().toLowerCase();
+                if (file.isFile() && lower.endsWith(".zip.broken")) {
+                    addBrokenTheme(file.getName().substring(0, lower.lastIndexOf(".zip.broken")),
+                            "The theme .zip file is damaged");
                 }
             }
         }
         File[] folders = themeFolder.listFiles();
         if (folders != null) {
             for (File subFolder : folders) {
-                if (subFolder.isDirectory()) {
+                // Half-extracted folder of a damaged .zip: already reported above, don't offer it.
+                if (subFolder.isDirectory() && findBrokenTheme(subFolder.getName()) == null) {
                     File configFile = new File(subFolder, "config.json");
                     if (configFile.exists() && configFile.isFile()) {
                         try {
@@ -326,12 +386,60 @@ public class ThemeManager {
                                     ));
                                 }
                             }
-                            availableThemes.add(theme);
-                        } catch (Exception e) { e.printStackTrace(); }
+                            // 🚀 [Theme validation] The main menu is the only way back into Settings, so a theme
+                            // without buttons - or without a Settings button - would leave the user stuck.
+                            String problem = validateTheme(theme);
+                            if (problem != null) {
+                                addBrokenTheme(theme.name, problem);
+                            } else {
+                                availableThemes.add(theme);
+                            }
+                        } catch (org.json.JSONException e) {
+                            e.printStackTrace();
+                            addBrokenTheme(subFolder.getName(), "config.json is not valid JSON");
+                        } catch (Exception | OutOfMemoryError e) {
+                            e.printStackTrace();
+                            addBrokenTheme(subFolder.getName(), "The theme files could not be read");
+                        }
                     }
                 }
             }
         }
+    }
+
+    // Returns null if the theme is usable, or the reason it isn't.
+    private static String validateTheme(ThemeData theme) {
+        boolean hasButton = false, hasSettings = false;
+        for (MenuElement el : theme.menuElements) {
+            if ("button".equals(el.type)) {
+                hasButton = true;
+                if ("OPEN_SETTINGS".equals(el.action)) hasSettings = true;
+            }
+        }
+        if (!hasButton) return "It has no main menu buttons";
+        if (!hasSettings) return "It has no Settings button in the main menu";
+        return null;
+    }
+
+    private static void addBrokenTheme(String name, String reason) {
+        for (BrokenTheme b : brokenThemes) {
+            if (b.name.equals(name)) return; // a damaged .zip and its half-extracted folder are one theme
+        }
+        brokenThemes.add(new BrokenTheme(name, reason));
+    }
+
+    public static BrokenTheme findBrokenTheme(String name) {
+        if (name == null) return null;
+        for (BrokenTheme b : brokenThemes) {
+            if (b.name.equals(name)) return b;
+        }
+        return null;
+    }
+
+    // Switches to the built-in default theme for this session only: unlike setThemeIndex() it keeps
+    // the user's choice, so the theme is tried again next time (e.g. after it's been fixed).
+    public static void useDefaultThemeTemporarily() {
+        currentThemeIndex = 0;
     }
 
     public static void setThemeIndex(int index) {

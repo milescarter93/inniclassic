@@ -1660,8 +1660,15 @@ public class MainActivity extends Activity {
                 // (흔한 FAT32 동작) 저장된 인덱스가 엉뚱한(보통 기본) 테마를 가리키는 문제를 막습니다.
                 String savedThemeName = prefs.getString("app_theme_name", null);
                 int resolvedIndex = savedThemeName != null ? ThemeManager.findThemeIndexByName(savedThemeName) : -1;
+                final ThemeManager.BrokenTheme brokenSaved = ThemeManager.findBrokenTheme(savedThemeName);
                 if (resolvedIndex >= 0) {
                     ThemeManager.setThemeIndex(resolvedIndex);
+                } else if (brokenSaved != null) {
+                    // 🚀 [Theme validation] The saved theme is on the card but damaged: say why and use the
+                    // default for now (the saved index would point at an unrelated theme).
+                    ThemeManager.useDefaultThemeTemporarily();
+                    Toast.makeText(this, t("Theme damaged:") + " " + brokenSaved.name + " - " + t(brokenSaved.reason)
+                            + ". " + t("Using the default theme."), Toast.LENGTH_LONG).show();
                 } else {
                     int savedThemeIndex = prefs.getInt("app_theme_index", 0);
                     ThemeManager.setThemeIndex(savedThemeIndex);
@@ -3596,7 +3603,20 @@ public class MainActivity extends Activity {
             applyFontToAllViews(root, ThemeManager.getCustomFont());
 
             // 🚀🚀🚀 [여기가 핵심!] 기존 낡은 메뉴를 싹 날려버리고 JSON 부품을 조립합니다!
-            buildDynamicMainMenuUI();
+            try {
+                buildDynamicMainMenuUI();
+            } catch (Exception | OutOfMemoryError e) {
+                // 🚀 [Theme validation] A theme that can't be drawn would leave a blank or half-built
+                // main menu with no way back to Settings - fall back to the built-in theme instead.
+                e.printStackTrace();
+                if (ThemeManager.getCurrentThemeIndex() != 0) {
+                    String failedName = ThemeManager.getCurrentTheme().name;
+                    ThemeManager.useDefaultThemeTemporarily();
+                    Toast.makeText(this, t("The theme could not be displayed:") + " " + failedName + ". "
+                            + t("Using the default theme."), Toast.LENGTH_LONG).show();
+                    applyThemeToMainMenu(); // re-apply colors, fonts and menu; index 0 can't recurse again
+                }
+            }
 
         } catch (Exception e) {
         }
@@ -3693,6 +3713,26 @@ public class MainActivity extends Activity {
                 }
             });
             containerSettingsItems.addView(btn);
+        }
+
+        // 🚀 [Theme validation] Damaged themes are listed after the usable ones (so the focus index of
+        // the current theme still matches its row) and explain what's wrong instead of applying.
+        for (final ThemeManager.BrokenTheme broken : ThemeManager.brokenThemes) {
+            Button btnBroken = createListButton("⚠ " + broken.name);
+            btnBroken.setTextColor(ThemeManager.getTextColorSecondary());
+            btnBroken.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    clickFeedback();
+                    new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                            .setTitle(t("Theme damaged:") + " " + broken.name)
+                            .setMessage(t(broken.reason) + ".\n\n"
+                                    + t("Fix or replace it in the Y1_Themes folder on the SD card."))
+                            .setPositiveButton(t("OK"), null)
+                            .show();
+                }
+            });
+            containerSettingsItems.addView(btnBroken);
         }
 
         containerSettingsItems.postDelayed(new Runnable() {
