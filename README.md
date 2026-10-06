@@ -132,7 +132,7 @@ That's why the uninstall step above always comes before installing — there's n
 
 ## Speeding up large library scans
 
-InniClassic caches your scanned library to a plain JSON file at the SD card's root (`.y1_library_cache.json`); any file already listed there is skipped during the next scan instead of being re-tagged. If you have a large library (thousands of tracks) and add music on your PC, [`tools/build_library_cache.py`](tools/build_library_cache.py) pre-builds that same cache file on your PC — much faster than the device's CPU — so the next on-device scan is just a quick existence check instead of tagging everything from scratch.
+InniClassic caches your scanned library to a plain JSON file at the SD card's root (`.y1_library_cache.json`); any file already listed there is skipped during the next scan instead of being re-tagged, unless its modification time or size changed since (e.g. you edited its tags on a PC), in which case only that file is read again. Duplicate copies hidden from the library are cached too, so they aren't re-tagged on every scan either. If you have a large library (thousands of tracks) and add music on your PC, [`tools/build_library_cache.py`](tools/build_library_cache.py) pre-builds that same cache file on your PC — much faster than the device's CPU — so the next on-device scan is just a quick existence check instead of tagging everything from scratch.
 
 Requires the card to be accessible as a normal drive (card reader or USB mass storage, not MTP) and `pip install mutagen`:
 

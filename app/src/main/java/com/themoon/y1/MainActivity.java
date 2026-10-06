@@ -397,6 +397,7 @@ public class MainActivity extends Activity {
     private TextView tvLoadingProgress;
     private int totalAudioFiles = 0;
     private int scannedAudioFiles = 0;
+    private int taggedAudioFiles = 0; // files whose tags were actually read in the current scan (new or changed)
     // 💡 [초고속 엔진] 수천 곡을 버티기 위한 재활용 리스트뷰와 기존 스크롤뷰
     private ListView listVirtualSongs;
     private View scrollViewBrowser;
@@ -444,6 +445,13 @@ public class MainActivity extends Activity {
     // (볼륨 전용 변수와 복잡한 포커스 인덱스는 이제 필요 없으므로 과감히 삭제!)
     private boolean isCustomScanning = false;
     public static java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
+    // 🚀 [Incremental scan] Every tagged file, including duplicates that filterDuplicateSongs() hides from
+    // customLibrary/audiobookLibrary. This is what the library cache stores, so hidden duplicates aren't
+    // re-tagged on every scan; the visible lists are rebuilt from it with refreshVisibleLibrary().
+    public static List<SongItem> customLibraryAll = new ArrayList<>();
+    public static List<SongItem> audiobookLibraryAll = new ArrayList<>();
+    // path -> {lastModified, length} at the time the file was tagged; a mismatch means it changed.
+    public static java.util.HashMap<String, long[]> fileStampMap = new java.util.HashMap<>();
     private int currentScreenState = STATE_MENU;
     // 💡 자체 날짜/시간 설정용 임시 변수
     private int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
@@ -2823,16 +2831,17 @@ public class MainActivity extends Activity {
                     // 새 파일 장부에 적어 넣기!
                     targetLibrary.add(new SongItem(f, title, artist, album, year, genre, albumArtist, composer));
                     trackNumberMap.put(f.getAbsolutePath(), trackNum);
+                    fileStampMap.put(f.getAbsolutePath(), fileStamp(f));
 
                     scannedAudioFiles++;
+                    taggedAudioFiles++;
 
                     // 🚀 [신규 추가] 이 기기는 메모리가 적어 스캔 도중 강제 종료될 수 있습니다.
                     // 500곡마다 중간 저장을 해두면, 죽더라도 다음 부팅 때 처음부터가 아니라
                     // 그 이후부터 이어서 스캔하게 되어 결국엔 반드시 끝까지 도달합니다!
-                    // 🚨 [버그 수리] 중간 저장본에도 중복 제거를 적용해야, 스캔이 중간에 끊겨도
-                    // 캐시에 중복곡이 영구히 남지 않습니다!
+                    // (targetLibrary is now the full list incl. duplicates - those are only hidden from the
+                    // visible lists at the end of the scan, so the cache keeps them and skips them next time.)
                     if (scannedAudioFiles % 500 == 0) {
-                        filterDuplicateSongs(targetLibrary);
                         saveLibraryCache();
                     }
                     if (totalAudioFiles > 0) {
@@ -2861,13 +2870,59 @@ public class MainActivity extends Activity {
     private void saveLibraryCache() {
         try {
             org.json.JSONObject root = new org.json.JSONObject();
-            root.put("music", songListToJson(customLibrary));
-            root.put("books", songListToJson(audiobookLibrary));
-            java.io.FileWriter fw = new java.io.FileWriter(LIBRARY_CACHE_FILE);
-            fw.write(root.toString());
-            fw.close();
+            root.put("version", 2); // 2 = full lists incl. duplicates, with per-file mtime/size
+            root.put("music", songListToJson(customLibraryAll));
+            root.put("books", songListToJson(audiobookLibraryAll));
+            // Write to a temp file and rename, so a crash or pulled card mid-write can't leave a truncated
+            // cache (which would silently force a full re-scan of the whole library).
+            File tmp = new File(LIBRARY_CACHE_FILE.getPath() + ".tmp");
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp);
+            try {
+                fos.write(root.toString().getBytes("UTF-8"));
+                fos.getFD().sync();
+            } finally {
+                fos.close();
+            }
+            LIBRARY_CACHE_FILE.delete();
+            tmp.renameTo(LIBRARY_CACHE_FILE);
         } catch (Exception e) {
         }
+    }
+
+    private static long[] fileStamp(File f) {
+        return new long[] { f.lastModified(), f.length() };
+    }
+
+    // Removes files that were deleted, or changed since they were tagged, from a full library list.
+    // Entries with no recorded stamp (older caches) are kept and stamped now.
+    private void dropDeletedOrChangedFiles(List<SongItem> all) {
+        java.util.Iterator<SongItem> it = all.iterator();
+        while (it.hasNext()) {
+            SongItem item = it.next();
+            String path = item.file.getAbsolutePath();
+            boolean drop;
+            if (!item.file.exists()) {
+                drop = true; // 파일이 지워졌으면 장부에서 즉시 파쇄!
+            } else {
+                long[] now = fileStamp(item.file);
+                long[] then = fileStampMap.get(path);
+                drop = then != null && (then[0] != now[0] || then[1] != now[1]);
+                if (!drop) fileStampMap.put(path, now);
+            }
+            if (drop) {
+                trackNumberMap.remove(path);
+                fileStampMap.remove(path);
+                it.remove();
+            }
+        }
+    }
+
+    // Shows the full tagged list minus duplicates (only the best-quality copy of each song stays visible).
+    private void refreshVisibleLibrary(List<SongItem> all, List<SongItem> visible) {
+        List<SongItem> deduped = new ArrayList<>(all);
+        filterDuplicateSongs(deduped);
+        visible.clear();
+        visible.addAll(deduped);
     }
 
     private org.json.JSONArray songListToJson(List<SongItem> list) throws org.json.JSONException {
@@ -2884,6 +2939,11 @@ public class MainActivity extends Activity {
             o.put("composer", song.composer);
             Integer trackNum = trackNumberMap.get(song.file.getAbsolutePath());
             o.put("trackNum", trackNum != null ? trackNum : 0);
+            long[] stamp = fileStampMap.get(song.file.getAbsolutePath());
+            if (stamp != null) {
+                o.put("mtime", stamp[0]);
+                o.put("size", stamp[1]);
+            }
             arr.put(o);
         }
         return arr;
@@ -2898,8 +2958,12 @@ public class MainActivity extends Activity {
             fis.read(data);
             fis.close();
             org.json.JSONObject root = new org.json.JSONObject(new String(data, "UTF-8"));
-            jsonToSongList(root.optJSONArray("music"), customLibrary);
-            jsonToSongList(root.optJSONArray("books"), audiobookLibrary);
+            jsonToSongList(root.optJSONArray("music"), customLibraryAll);
+            jsonToSongList(root.optJSONArray("books"), audiobookLibraryAll);
+            // Version 1 caches (and tools/build_library_cache.py) only hold the deduplicated list, so this is
+            // a no-op for them; version 2 caches also carry the hidden duplicates.
+            refreshVisibleLibrary(customLibraryAll, customLibrary);
+            refreshVisibleLibrary(audiobookLibraryAll, audiobookLibrary);
         } catch (Exception e) {
         }
     }
@@ -2920,6 +2984,11 @@ public class MainActivity extends Activity {
                         o.optString("albumArtist", ""), o.optString("composer", ""));
                 target.add(song);
                 trackNumberMap.put(f.getAbsolutePath(), o.optInt("trackNum", 0));
+                // Entries without a stamp (older caches, the PC cache builder) are trusted as-is; the next
+                // scan records their current stamp so later changes are detected.
+                if (o.has("mtime") && o.has("size")) {
+                    fileStampMap.put(f.getAbsolutePath(), new long[] { o.getLong("mtime"), o.getLong("size") });
+                }
             } catch (Exception e) {
             }
         }
@@ -2946,53 +3015,44 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 // 🚀 [부분 스캔 1단계] 삭제된 파일 감지 (기존 바구니 정리)
-                java.util.Iterator<SongItem> itMusic = customLibrary.iterator();
-                while (itMusic.hasNext()) {
-                    SongItem item = itMusic.next();
-                    if (!item.file.exists()) {
-                        trackNumberMap.remove(item.file.getAbsolutePath());
-                        itMusic.remove(); // 파일이 지워졌으면 장부에서 즉시 파쇄!
-                    }
-                }
-
-                java.util.Iterator<SongItem> itBook = audiobookLibrary.iterator();
-                while (itBook.hasNext()) {
-                    SongItem item = itBook.next();
-                    if (!item.file.exists()) {
-                        trackNumberMap.remove(item.file.getAbsolutePath());
-                        itBook.remove(); // 파일이 지워졌으면 장부에서 즉시 파쇄!
-                    }
-                }
+                // 🚀 [Incremental scan] ...and modified ones (e.g. re-tagged on a PC): dropping them here makes
+                // the folder walk below treat them as new, so only they get their tags read again.
+                dropDeletedOrChangedFiles(customLibraryAll);
+                dropDeletedOrChangedFiles(audiobookLibraryAll);
 
                 // 🚀 이미 안전하게 살아있는 파일들의 '주소 명단'을 추출합니다. (검색 속도 극대화)
                 HashSet<String> existingMusic = new HashSet<>();
-                for (SongItem item : customLibrary)
+                for (SongItem item : customLibraryAll)
                     existingMusic.add(item.file.getAbsolutePath());
 
                 HashSet<String> existingBooks = new HashSet<>();
-                for (SongItem item : audiobookLibrary)
+                for (SongItem item : audiobookLibraryAll)
                     existingBooks.add(item.file.getAbsolutePath());
 
                 totalAudioFiles = 0;
                 scannedAudioFiles = 0;
+                taggedAudioFiles = 0;
+                final long scanStart = System.currentTimeMillis();
 
                 // 🚀 양쪽 폴더 모두 개수 세기 (진행률 표시용)
                 countAudioFiles(rootFolder);
                 countAudioFiles(audiobookRootFolder);
 
                 // 🚀 [부분 스캔 2단계] 기존 명단을 들고 폴더를 뒤져서 '새로 들어온 파일'만 태그 파싱!
-                buildCustomLibrary(rootFolder, customLibrary, existingMusic);
-                buildCustomLibrary(audiobookRootFolder, audiobookLibrary, existingBooks);
+                buildCustomLibrary(rootFolder, customLibraryAll, existingMusic);
+                buildCustomLibrary(audiobookRootFolder, audiobookLibraryAll, existingBooks);
 
                 // 🚀 [신규 엔진 장착] 중복 폭탄 해체! 최고 음질 1개만 남기고 다 분쇄합니다!
-                filterDuplicateSongs(customLibrary);
-                filterDuplicateSongs(audiobookLibrary);
+                // (Only from the visible lists - the full lists keep duplicates so they're never re-tagged.)
+                refreshVisibleLibrary(customLibraryAll, customLibrary);
+                refreshVisibleLibrary(audiobookLibraryAll, audiobookLibrary);
 
                 // 즐겨찾기 자동 청소기
+                // (Checks the full lists: a favorite that's merely a hidden duplicate still exists on the card.)
                 HashSet<String> aliveSongs = new HashSet<>();
-                for (SongItem song : customLibrary)
+                for (SongItem song : customLibraryAll)
                     aliveSongs.add(song.file.getAbsolutePath());
-                for (SongItem book : audiobookLibrary)
+                for (SongItem book : audiobookLibraryAll)
                     aliveSongs.add(book.file.getAbsolutePath());
 
                 boolean isCleanedUp = false;
@@ -3009,6 +3069,10 @@ public class MainActivity extends Activity {
 
                 // 🚀 [신규 추가] 다음 부팅 때 처음부터 다시 스캔하지 않도록, 완성된 라이브러리를 디스크에 저장!
                 saveLibraryCache();
+                android.util.Log.i("Y1Library", "Scan finished in " + (System.currentTimeMillis() - scanStart)
+                        + " ms: " + scannedAudioFiles + " files, " + taggedAudioFiles + " tagged (new/changed), "
+                        + customLibrary.size() + " songs shown, "
+                        + (customLibraryAll.size() - customLibrary.size()) + " duplicates hidden");
 
                 runOnUiThread(new Runnable() {
                     @Override
