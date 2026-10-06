@@ -330,7 +330,12 @@ public class AudioPlayerManager {
         // 🚀 4. [절대 셔플 엔진 가동] 설정에서 셔플 모드가 켜져 있다면? 무조건 섞습니다!
         boolean isShuffle = main.prefs.getBoolean("shuffle", false);
         if (isShuffle) {
-            java.util.Collections.shuffle(main.currentPlaylist); // currentPlaylist를 사정없이 섞음!
+            // 🚀 [Smart shuffle] The chosen song first, then the rest shuffled by song (no same artist twice
+            // in a row) or by album, per Settings > Shuffle By.
+            List<File> shuffled = ShuffleHelper.shuffle(newList, targetSong,
+                    main.prefs.getString(ShuffleHelper.PREF_KEY, ShuffleHelper.BY_SONGS));
+            main.currentPlaylist.clear();
+            main.currentPlaylist.addAll(shuffled);
 
             // 섞인 바구니 안에서 방금 사용자가 누른 그 곡(targetSong)이 몇 번 자리로 밀려났는지 찾아냅니다.
             main.currentIndex = main.currentPlaylist.indexOf(targetSong);

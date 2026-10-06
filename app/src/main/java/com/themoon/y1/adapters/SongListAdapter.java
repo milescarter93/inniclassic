@@ -292,8 +292,11 @@ public class SongListAdapter extends BaseAdapter {
             @Override
             public void onClick(View v) {
                 MainActivity.instance.clickFeedback();
-                java.util.List<java.io.File> shuffled = new java.util.ArrayList<>(MainActivity.instance.virtualSongList);
-                java.util.Collections.shuffle(shuffled);
+                // 🚀 [Smart shuffle] Same rules as the Shuffle setting (artist spreading / albums).
+                java.util.List<java.io.File> shuffled = com.themoon.y1.managers.ShuffleHelper.shuffle(
+                        MainActivity.instance.virtualSongList, null,
+                        MainActivity.instance.prefs.getString(com.themoon.y1.managers.ShuffleHelper.PREF_KEY,
+                                com.themoon.y1.managers.ShuffleHelper.BY_SONGS));
                 com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackList(shuffled, 0);
                 MainActivity.instance.changeScreen(3);
             }

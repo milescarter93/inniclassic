@@ -6345,6 +6345,26 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnShuffle);
 
+        // 🚀 [Smart shuffle] What Shuffle shuffles: songs (spread out by artist) or whole albums.
+        final String shuffleBy = prefs.getString(com.themoon.y1.managers.ShuffleHelper.PREF_KEY,
+                com.themoon.y1.managers.ShuffleHelper.BY_SONGS);
+        final LinearLayout btnShuffleBy = createSettingRow("Shuffle By",
+                com.themoon.y1.managers.ShuffleHelper.BY_ALBUMS.equals(shuffleBy) ? t("Shuffle Albums") : t("Shuffle Songs"));
+        btnShuffleBy.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                boolean albums = !com.themoon.y1.managers.ShuffleHelper.BY_ALBUMS.equals(
+                        prefs.getString(com.themoon.y1.managers.ShuffleHelper.PREF_KEY,
+                                com.themoon.y1.managers.ShuffleHelper.BY_SONGS));
+                prefs.edit().putString(com.themoon.y1.managers.ShuffleHelper.PREF_KEY, albums
+                        ? com.themoon.y1.managers.ShuffleHelper.BY_ALBUMS
+                        : com.themoon.y1.managers.ShuffleHelper.BY_SONGS).commit();
+                ((TextView) btnShuffleBy.getChildAt(1)).setText(albums ? t("Shuffle Albums") : t("Shuffle Songs"));
+            }
+        });
+        containerSettingsItems.addView(btnShuffleBy);
+
         final LinearLayout btnRepeat = createSettingRow("Repeat Mode", t(getRepeatModeText(repeatMode)));
         btnRepeat.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -12209,7 +12229,12 @@ public class MainActivity extends Activity {
         if (!currentPlaylist.isEmpty() && !originalPlaylist.isEmpty()) {
             File currentSong = currentPlaylist.get(currentIndex);
             if (isShuffleMode) {
-                java.util.Collections.shuffle(currentPlaylist);
+                // 🚀 [Smart shuffle] The playing song stays and the rest is shuffled after it.
+                List<File> shuffled = com.themoon.y1.managers.ShuffleHelper.shuffle(currentPlaylist, currentSong,
+                        prefs.getString(com.themoon.y1.managers.ShuffleHelper.PREF_KEY,
+                                com.themoon.y1.managers.ShuffleHelper.BY_SONGS));
+                currentPlaylist.clear();
+                currentPlaylist.addAll(shuffled);
             } else {
                 currentPlaylist.clear();
                 currentPlaylist.addAll(originalPlaylist);
@@ -16016,9 +16041,10 @@ public class MainActivity extends Activity {
         if (currentPlaylist.isEmpty()) return;
 
         // Titles and artists come from the library; files not in it (folder playback) show their name.
+        // (The visible lists: the *All ones may be mid-update by a background scan.)
         java.util.HashMap<String, SongItem> byPath = new java.util.HashMap<>();
-        for (SongItem s : customLibraryAll) byPath.put(s.file.getAbsolutePath(), s);
-        for (SongItem s : audiobookLibraryAll) byPath.put(s.file.getAbsolutePath(), s);
+        for (SongItem s : customLibrary) byPath.put(s.file.getAbsolutePath(), s);
+        for (SongItem s : audiobookLibrary) byPath.put(s.file.getAbsolutePath(), s);
 
         ScrollView scrollView = new ScrollView(this);
         scrollView.setBackgroundColor(0xFFFFFFFF);

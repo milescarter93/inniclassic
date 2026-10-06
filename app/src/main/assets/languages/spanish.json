@@ -343,5 +343,13 @@
   "Search": "Buscar",
   "Enter search term...": "Escribe lo que buscas...",
   "Add to Playlist": "Añadir a una lista",
-  "Jump to Letter": "Ir a una letra"
+  "Jump to Letter": "Ir a una letra",
+  "Shuffle By": "Aleatorio por",
+  "Shuffle Songs": "Canciones",
+  "Shuffle Albums": "Álbumes",
+  "Shuffle": "Aleatorio",
+  "Song": "Canción",
+  "Songs": "Canciones",
+  "song": "canción",
+  "songs": "canciones"
 }

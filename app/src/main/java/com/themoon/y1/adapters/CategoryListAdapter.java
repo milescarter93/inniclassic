@@ -594,11 +594,13 @@ public class CategoryListAdapter extends BaseAdapter {
         return row;
     }
 
+    // Lower-case keys of their own: in a count ("12 songs") the word isn't capitalised, unlike the "Songs"
+    // menu entry, and a language can only give one translation per key.
     private String t1Song() {
-        return "1 " + MainActivity.instance.t("Song");
+        return "1 " + MainActivity.instance.t("song");
     }
 
     private String tSongs() {
-        return MainActivity.instance.t("Songs");
+        return MainActivity.instance.t("songs");
     }
 }
