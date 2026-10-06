@@ -34,6 +34,8 @@ public class SettingsBackupManager {
     static {
         TRANSIENT_KEYS.add("reboot_to_theme");
         TRANSIENT_KEYS.add("last_attempted_file");
+        TRANSIENT_KEYS.add("last_crash_signature"); // CrashLogger's crash-loop detection state
+        TRANSIENT_KEYS.add("last_crash_time");
     }
 
     public static boolean hasBackup() {

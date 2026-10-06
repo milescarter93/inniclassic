@@ -1487,17 +1487,7 @@ public class MainActivity extends Activity {
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
             public void uncaughtException(Thread thread, Throwable e) {
-                try {
-                    StringWriter sw = new StringWriter();
-                    PrintWriter pw = new PrintWriter(sw);
-                    e.printStackTrace(pw);
-                    File logFile = new File("/storage/sdcard0/y1_crash_log.txt");
-                    FileOutputStream fos = new FileOutputStream(logFile, true);
-                    fos.write(("\n\n--- 💥 CRASH REPORT (" + new Date().toString() + ") ---\n").getBytes());
-                    fos.write(sw.toString().getBytes());
-                    fos.close();
-                } catch (Exception ex) {
-                }
+                com.themoon.y1.managers.CrashLogger.logCrash(getApplicationContext(), e);
                 System.exit(1);
             }
         });
