@@ -1512,7 +1512,24 @@ public class MainActivity extends Activity {
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
             public void uncaughtException(Thread thread, Throwable e) {
-                com.themoon.y1.managers.CrashLogger.logCrash(getApplicationContext(), e);
+                Context ctx = getApplicationContext();
+                // 🚀 [Crash recovery] Save the exact position first (best effort - the player itself may be
+                // what failed), then relaunch the launcher so it can pick up where it left off.
+                try {
+                    com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+                    if (!currentPlaylist.isEmpty() && currentIndex < currentPlaylist.size()
+                            && currentPlaylist.get(currentIndex).exists()) {
+                        com.themoon.y1.managers.PlaybackStateStore.saveProgress(ctx, currentIndex,
+                                am.getCurrentPosition(), am.isPlaying() && !isPausedByHand, true);
+                    }
+                } catch (Throwable ignored) {
+                }
+                boolean crashLoop = com.themoon.y1.managers.CrashLogger.logCrash(ctx, e);
+                // The same crash again within minutes: don't relaunch into it again (and again...).
+                if (!crashLoop) {
+                    com.themoon.y1.managers.PlaybackStateStore.markResumeAfterCrash(ctx);
+                    scheduleAppRelaunch(ctx, 1500);
+                }
                 System.exit(1);
             }
         });
@@ -2452,6 +2469,16 @@ public class MainActivity extends Activity {
         });
 
         clockHandler.post(clockTask);
+        playbackStateHandler.removeCallbacks(savePlaybackStateTask);
+        playbackStateHandler.postDelayed(savePlaybackStateTask, PLAYBACK_STATE_SAVE_MS);
+        // 🚀 [Crash recovery] If this start follows a crash, put the music back where it was - once the
+        // rest of onCreate has set up the player views.
+        playbackStateHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                resumeAfterCrashIfNeeded();
+            }
+        }, 1000);
 
         IntentFilter filter = new IntentFilter();
         // 🚀 [여기 추가 1] 시스템보다 우리가 먼저 가로채기 위해 안테나 우선순위를 최대로 높입니다!
@@ -3368,6 +3395,38 @@ public class MainActivity extends Activity {
         float fraction = Math.max(0f, Math.min(1f, (current + max / 2f) / max));
         anim.setCurrentPlayTime((long) (fraction * durationMs));
         return anim;
+    }
+
+    // 🚀 [Crash recovery] While music plays, its position is saved every PLAYBACK_STATE_SAVE_MS (track
+    // changes and play/pause save immediately), so a crash loses at most that much of the song.
+    private static final int PLAYBACK_STATE_SAVE_MS = 10000;
+    private final Handler playbackStateHandler = new Handler();
+    private final Runnable savePlaybackStateTask = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+                if (am.isPlaying() && !currentPlaylist.isEmpty() && currentIndex < currentPlaylist.size()
+                        && currentPlaylist.get(currentIndex).exists()) {
+                    com.themoon.y1.managers.PlaybackStateStore.saveProgress(MainActivity.this, currentIndex,
+                            am.getCurrentPosition(), true);
+                }
+            } catch (Exception e) {
+            }
+            playbackStateHandler.postDelayed(this, PLAYBACK_STATE_SAVE_MS);
+        }
+    };
+
+    private void resumeAfterCrashIfNeeded() {
+        if (!com.themoon.y1.managers.PlaybackStateStore.consumeResumeAfterCrash(this)) return;
+        com.themoon.y1.managers.PlaybackStateStore.State state = com.themoon.y1.managers.PlaybackStateStore.load(this);
+        if (state == null) return;
+        boolean restored = com.themoon.y1.managers.AudioPlayerManager.getInstance().restoreQueue(state, state.wasPlaying);
+        android.util.Log.i("Y1Resume", "Resume after crash: restored=" + restored + " index=" + state.index
+                + " position=" + state.positionMs + " ms playing=" + state.wasPlaying);
+        if (restored && state.wasPlaying) {
+            Toast.makeText(this, t("Resuming playback after an unexpected error."), Toast.LENGTH_LONG).show();
+        }
     }
 
     // 🚀 [Battery] The clock and Now Playing progress tick slowly while the display is idle; when it comes
@@ -13666,6 +13725,7 @@ public class MainActivity extends Activity {
         if (webServer != null) webServer.stopServer();
         clockHandler.removeCallbacks(clockTask);
         progressHandler.removeCallbacks(updateProgressTask);
+        playbackStateHandler.removeCallbacksAndMessages(null);
         volumeHandler.removeCallbacks(hideVolumeTask);
         volumeHandler.removeCallbacks(hideNowPlayingVolumeTask);
 
@@ -14052,16 +14112,25 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Brings the launcher back up delayMs from now - used before the process exits on purpose (settings
+    // restore) or because of a crash. ELAPSED_REALTIME: the device clock is often wrong on the Y1.
+    private static void scheduleAppRelaunch(Context context, long delayMs) {
+        try {
+            Intent relaunch = new Intent(context, MainActivity.class);
+            relaunch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(context, 0, relaunch,
+                    android.app.PendingIntent.FLAG_CANCEL_CURRENT);
+            android.app.AlarmManager am = (android.app.AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            am.set(android.app.AlarmManager.ELAPSED_REALTIME, android.os.SystemClock.elapsedRealtime() + delayMs, pi);
+        } catch (Exception e) {
+        }
+    }
+
     // Settings are read into fields and singletons all over the app at startup, so a restored backup
     // only fully applies after a fresh process start - schedule a relaunch and exit.
     private void restartAppAfterRestore() {
         Toast.makeText(this, t("Settings restored. Restarting..."), Toast.LENGTH_SHORT).show();
-        Intent relaunch = new Intent(this, MainActivity.class);
-        relaunch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 0, relaunch,
-                android.app.PendingIntent.FLAG_CANCEL_CURRENT);
-        android.app.AlarmManager am = (android.app.AlarmManager) getSystemService(Context.ALARM_SERVICE);
-        am.set(android.app.AlarmManager.RTC, System.currentTimeMillis() + 1500, pi);
+        scheduleAppRelaunch(this, 1500);
         // Give the toast a moment on screen before the process goes away.
         new android.os.Handler().postDelayed(new Runnable() {
             @Override

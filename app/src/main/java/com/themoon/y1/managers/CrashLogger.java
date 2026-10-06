@@ -20,7 +20,10 @@ public class CrashLogger {
     // How many stack trace lines identify "the same crash" (exception type, message and where it happened).
     private static final int SIGNATURE_LINES = 6;
 
-    public static void logCrash(Context context, Throwable e) {
+    // Returns true if this is the same crash again within REPEAT_WINDOW_MS (a crash loop) - callers use it
+    // to avoid relaunching into the same crash over and over.
+    public static boolean logCrash(Context context, Throwable e) {
+        boolean repeated = false;
         try {
             StringWriter sw = new StringWriter();
             e.printStackTrace(new PrintWriter(sw));
@@ -30,7 +33,7 @@ public class CrashLogger {
             // Crash-loop detection state lives in prefs: the process is about to die, so nothing in memory survives.
             SharedPreferences prefs = context.getSharedPreferences("Y1_SETTINGS", Context.MODE_PRIVATE);
             long now = System.currentTimeMillis();
-            boolean repeated = signature.equals(prefs.getString("last_crash_signature", null))
+            repeated = signature.equals(prefs.getString("last_crash_signature", null))
                     && Math.abs(now - prefs.getLong("last_crash_time", 0)) < REPEAT_WINDOW_MS;
             prefs.edit().putString("last_crash_signature", signature).putLong("last_crash_time", now).commit();
 
@@ -55,6 +58,7 @@ public class CrashLogger {
         } catch (Throwable ignored) {
             // Never let logging a crash cause a second one.
         }
+        return repeated;
     }
 
     private static String signatureOf(String trace) {

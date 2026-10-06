@@ -363,8 +363,56 @@ public class AudioPlayerManager {
             if (!main.isPausedByHand) exoPlayer.setPlayWhenReady(true);
         }
 
+        // 🚀 [Crash recovery] Remember this queue in the order it will actually play.
+        PlaybackStateStore.saveQueue(main, main.originalPlaylist, main.currentPlaylist);
+
         prepareMusicTrack(main.currentIndex);
         main.updatePlayerUI(); // 🚀 타이머 즉시 시작!
+    }
+
+    // 🚀 [Crash recovery] Puts back a saved queue exactly as it was - same order (no re-shuffle), same
+    // track and position - and starts playing if play is true. Returns false if there's nothing usable.
+    public boolean restoreQueue(PlaybackStateStore.State state, boolean play) {
+        final MainActivity main = MainActivity.instance;
+        if (main == null || state == null) return false;
+        File track = state.currentQueue.get(state.index);
+        if (!track.exists()) return false;
+
+        initPlayer(main);
+        main.originalPlaylist.clear();
+        main.originalPlaylist.addAll(state.originalQueue);
+        main.currentPlaylist.clear();
+        main.currentPlaylist.addAll(state.currentQueue);
+        main.currentIndex = state.index;
+        main.isPausedByHand = !play;
+
+        boolean isShuffle = main.prefs.getBoolean("shuffle", false);
+        if (exoPlayer != null) exoPlayer.setShuffleModeEnabled(false); // the saved order already is the play order
+        isGaplessQueueActive = !isShuffle && shouldUseGaplessQueue(main.currentPlaylist);
+        if (isGaplessQueueActive) {
+            List<MediaItem> mediaItems = new ArrayList<>();
+            for (File f : main.currentPlaylist) {
+                mediaItems.add(MediaItem.fromUri(Uri.fromFile(f)));
+            }
+            if (legacyPlayer != null) { legacyPlayer.stop(); legacyPlayer.reset(); }
+            exoPlayer.stop();
+            exoPlayer.setMediaItems(mediaItems, main.currentIndex, 0);
+            exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
+            exoPlayer.prepare();
+            exoPlayer.setPlayWhenReady(play);
+        }
+
+        prepareMusicTrack(main.currentIndex);
+        if (state.positionMs > 0) {
+            try {
+                seekRelative(state.positionMs - getCurrentPosition());
+            } catch (Exception e) {}
+            // prepareMusicTrack() just saved this track at position 0; keep the real position, so another
+            // crash before the next periodic save doesn't send the song back to the start.
+            PlaybackStateStore.saveProgress(main, main.currentIndex, state.positionMs, play);
+        }
+        main.updatePlayerUI();
+        return true;
     }
 
     // 🚀 [Gapless 재생 조건] 앨범(대부분 15곡 이하)이거나 명시적으로 15곡 이하인 재생목록일 때만 켭니다.
@@ -387,6 +435,7 @@ public class AudioPlayerManager {
 
             isUsingLegacyPlayer = false;
             isGaplessQueueActive = false; // 🚀 팟캐스트는 항상 단일 트랙 모드로 재생합니다.
+            PlaybackStateStore.markNotResumable(main); // 🚀 [Crash recovery] a stream isn't a file on the card
 
             // 🚀 [핵심 엔진] 스트리밍일 때도 '가짜(Dummy) 플레이리스트'를 만들어 시간을 기록하게 속입니다!
             String safeChannel = channelName.replaceAll("[\\\\/:*?\"<>|]", "_");
@@ -517,7 +566,12 @@ public class AudioPlayerManager {
                 if (MainActivity.instance != null) MainActivity.instance.isPausedByHand = false;
             }
         }
-        if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
+        if (MainActivity.instance != null) {
+            // 🚀 [Crash recovery] A crash right after pausing must not start the music again.
+            PlaybackStateStore.saveProgress(MainActivity.instance, MainActivity.instance.currentIndex,
+                    getCurrentPosition(), isPlaying());
+            MainActivity.instance.updatePlayerUI();
+        }
     }
 
     public void nextTrack() {
@@ -609,6 +663,9 @@ public class AudioPlayerManager {
             }
             return;
         }
+
+        // 🚀 [Crash recovery] New track: remember it (position 0) so a crash resumes here.
+        PlaybackStateStore.saveProgress(main, index, 0, !main.isPausedByHand);
 
         // 🚀 스레드(Thread)를 걷어내고 메인에서 즉시 처리하여 깜빡임/딜레이 현상을 완벽 차단!
         main.tvPlayerTitle.setText(track.getName());

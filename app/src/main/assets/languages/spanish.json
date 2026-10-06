@@ -327,5 +327,6 @@
   "It has no Settings button in the main menu": "No tiene botón de Ajustes en el menú principal",
   "Fix or replace it in the Y1_Themes folder on the SD card.": "Corrígelo o sustitúyelo en la carpeta Y1_Themes de la tarjeta SD.",
   "Cover Motion": "Movimiento de carátula",
-  "Album Cover Tilt": "Inclinación de carátula"
+  "Album Cover Tilt": "Inclinación de carátula",
+  "Resuming playback after an unexpected error.": "Reanudando la reproducción tras un error inesperado."
 }
