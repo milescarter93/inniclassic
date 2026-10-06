@@ -73,6 +73,13 @@ public class ThemeManager {
 
     public static List<ThemeData> availableThemes = new ArrayList<>();
     private static int currentThemeIndex = 0;
+    // 🚀 [Theme crash fix] Name of the theme the user picked. currentThemeIndex is static and survives
+    // activity relaunches, but loadThemesFromStorage() rebuilds the list - if the SD card is unmounted
+    // (e.g. USB Mass Storage) only the default theme loads and the stale index pointed past the end
+    // ("Invalid index 6, size is 1"). After every reload the index is re-resolved from this name.
+    private static String preferredThemeName = null;
+    // Used only if a getter runs before any theme has been loaded.
+    private static ThemeData fallbackTheme = null;
 
     private static int safeParseColor(String colorStr, int defaultColor) {
         try {
@@ -118,12 +125,25 @@ public class ThemeManager {
 
     public static int getStatusBarBackgroundColor() {
         if (availableThemes.isEmpty()) return 0x66000000;
-        return availableThemes.get(currentThemeIndex).statusBarBg;
+        return getCurrentTheme().statusBarBg;
     }
 
     public static void loadThemesFromStorage(File themeFolder) {
         availableThemes.clear();
+        availableThemes.add(buildDefaultTheme());
+        try {
+            loadThemesFromFolder(themeFolder);
+        } finally {
+            // 🚀 [Theme crash fix] Re-resolve the selection against the freshly built list. If the
+            // preferred theme is missing (SD card not mounted yet) fall back to the default for now
+            // but keep preferredThemeName, so the next reload with the card present restores it.
+            int resolved = preferredThemeName != null ? findThemeIndexByName(preferredThemeName) : -1;
+            if (resolved >= 0) currentThemeIndex = resolved;
+            else if (currentThemeIndex >= availableThemes.size()) currentThemeIndex = 0;
+        }
+    }
 
+    private static ThemeData buildDefaultTheme() {
         ThemeData defaultTheme = new ThemeData("default", "Dark (Default)", "", android.graphics.Typeface.DEFAULT,
                 0xFFFFFFFF, 0xFF888888, 0x00000000, 0x88000000, 0x15FFFFFF, 0xDDFFFFFF, 0xFF000000, 15);
         // 🚀 [버그 수리 완료] 모든 요소의 인자 순서와 개수(30개)를 생성자 포맷과 100% 일치하도록 칼같이 재정렬했습니다!
@@ -159,8 +179,10 @@ public class ThemeManager {
         // 💡 팁: 5번째 파라미터인 타겟 버튼("btn_bt")을 "" (빈칸)으로 비워두면, 모든 메뉴 버튼의 아이콘을 자동으로 띄워주는 글로벌 만능 위젯으로 작동합니다!
         defaultTheme.menuElements.add(new MenuElement("preview", "widget_focus_image", "", "", 290, 90, 140, 140, "", "", "", "", "", "", "", "", "NONE", "top|left", -1, -1, 16, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
 
-        availableThemes.add(defaultTheme);
+        return defaultTheme;
+    }
 
+    private static void loadThemesFromFolder(File themeFolder) {
         if (!themeFolder.exists()) {
             themeFolder.mkdirs();
         }
@@ -312,7 +334,14 @@ public class ThemeManager {
         }
     }
 
-    public static void setThemeIndex(int index) { if (index >= 0 && index < availableThemes.size()) currentThemeIndex = index; else currentThemeIndex = 0; }
+    public static void setThemeIndex(int index) {
+        if (index >= 0 && index < availableThemes.size()) {
+            currentThemeIndex = index;
+            preferredThemeName = availableThemes.get(index).name;
+        } else {
+            currentThemeIndex = 0;
+        }
+    }
 
     // 🚀 [기본 테마 지정] 이름으로 테마를 찾습니다 - zip 로딩 순서가 바뀌어도 항상 정확한 테마를 찾기 위함
     // (예: 첫 실행 시 "app_theme_index" 저장값이 없을 때 "iPod Classic"을 기본값으로 사용)
@@ -323,10 +352,18 @@ public class ThemeManager {
         return -1;
     }
     public static int getCurrentThemeIndex() { return currentThemeIndex; }
-    public static ThemeData getCurrentTheme() { return availableThemes.get(currentThemeIndex); }
+    public static ThemeData getCurrentTheme() {
+        // 🚀 [Theme crash fix] Never index blindly: an out-of-range index falls back to the default theme.
+        if (availableThemes.isEmpty()) {
+            if (fallbackTheme == null) fallbackTheme = buildDefaultTheme();
+            return fallbackTheme;
+        }
+        if (currentThemeIndex < 0 || currentThemeIndex >= availableThemes.size()) currentThemeIndex = 0;
+        return availableThemes.get(currentThemeIndex);
+    }
     public static android.graphics.Typeface getCustomFont() {
         if (availableThemes.isEmpty()) return android.graphics.Typeface.DEFAULT;
-        return availableThemes.get(currentThemeIndex).customFont;
+        return getCurrentTheme().customFont;
     }
 
     // 🚀 [폰트 통일 버그 수정] 구형 안드로이드에서 setTypeface(font, Typeface.BOLD)를 그때그때 호출하면
