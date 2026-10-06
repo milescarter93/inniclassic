@@ -617,6 +617,88 @@ public class AudioPlayerManager {
         main.updatePlayerUI();
     }
 
+    // =======================================================
+    // 🚀 [Up Next] Queue editing. Every operation keeps currentIndex pointing at the playing track, mirrors
+    // the change into ExoPlayer's own queue when gapless playback is using it, and saves the queue.
+    // =======================================================
+
+    // Starts playing the queue entry at index.
+    public void playQueueIndex(int index) {
+        MainActivity main = MainActivity.instance;
+        if (main == null || index < 0 || index >= main.currentPlaylist.size()) return;
+        saveAudiobookBookmarkIfNeeded();
+        main.lastTrackChangeTime = System.currentTimeMillis();
+        main.isPausedByHand = false;
+        if (isGaplessQueueActive && exoPlayer != null) {
+            // onMediaItemTransition (reason SEEK) updates currentIndex and the screen.
+            exoPlayer.seekTo(index, 0);
+            exoPlayer.setPlayWhenReady(true);
+            return;
+        }
+        main.currentIndex = index;
+        prepareMusicTrack(index);
+        main.updatePlayerUI();
+    }
+
+    // Removes an entry; the playing track can't be removed. Returns false if nothing changed.
+    public boolean removeFromQueue(int index) {
+        MainActivity main = MainActivity.instance;
+        if (main == null || index < 0 || index >= main.currentPlaylist.size() || index == main.currentIndex)
+            return false;
+        File removed = main.currentPlaylist.remove(index);
+        if (index < main.currentIndex) main.currentIndex--;
+        // Also from the unshuffled order, so toggling shuffle doesn't bring it back.
+        main.originalPlaylist.remove(removed);
+        if (isGaplessQueueActive && exoPlayer != null && index < exoPlayer.getMediaItemCount()) {
+            exoPlayer.removeMediaItem(index);
+        }
+        afterQueueEdit(main);
+        return true;
+    }
+
+    // Moves an entry from one position to another (the playing track may be moved too).
+    public boolean moveInQueue(int from, int to) {
+        MainActivity main = MainActivity.instance;
+        if (main == null || from == to) return false;
+        int size = main.currentPlaylist.size();
+        if (from < 0 || from >= size || to < 0 || to >= size) return false;
+        File moved = main.currentPlaylist.remove(from);
+        main.currentPlaylist.add(to, moved);
+        int cur = main.currentIndex;
+        if (from == cur) cur = to;
+        else if (from < cur && to >= cur) cur--;
+        else if (from > cur && to <= cur) cur++;
+        main.currentIndex = cur;
+        if (isGaplessQueueActive && exoPlayer != null && from < exoPlayer.getMediaItemCount()
+                && to < exoPlayer.getMediaItemCount()) {
+            exoPlayer.moveMediaItem(from, to);
+        }
+        afterQueueEdit(main);
+        return true;
+    }
+
+    // Moves an entry to right after the playing track.
+    public boolean playNextInQueue(int index) {
+        MainActivity main = MainActivity.instance;
+        if (main == null || index == main.currentIndex) return false;
+        int target = index > main.currentIndex ? main.currentIndex + 1 : main.currentIndex;
+        return moveInQueue(index, target);
+    }
+
+    // Call after the queue order changed in any way (queue edits, shuffle on/off).
+    public void afterQueueEdit(MainActivity main) {
+        // With shuffle off the play order is the "original" order, so keep the user's edits in it.
+        if (!main.prefs.getBoolean("shuffle", false)) {
+            main.originalPlaylist.clear();
+            main.originalPlaylist.addAll(main.currentPlaylist);
+        }
+        PlaybackStateStore.saveQueue(main, main.originalPlaylist, main.currentPlaylist);
+        PlaybackStateStore.saveProgress(main, main.currentIndex, getCurrentPosition(), isPlaying() && !main.isPausedByHand);
+        // "4 of 14" is otherwise only set when a track loads.
+        main.tvPlayerTrackCount.setText((main.currentIndex + 1) + " of " + main.currentPlaylist.size());
+        main.updatePlayerUI();
+    }
+
     public void seekRelative(int offsetMs) {
         long currentPos = getCurrentPosition();
         long duration = getDuration();

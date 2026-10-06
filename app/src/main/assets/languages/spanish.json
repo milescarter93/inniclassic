@@ -328,5 +328,13 @@
   "Fix or replace it in the Y1_Themes folder on the SD card.": "Corrígelo o sustitúyelo en la carpeta Y1_Themes de la tarjeta SD.",
   "Cover Motion": "Movimiento de carátula",
   "Album Cover Tilt": "Inclinación de carátula",
-  "Resuming playback after an unexpected error.": "Reanudando la reproducción tras un error inesperado."
+  "Resuming playback after an unexpected error.": "Reanudando la reproducción tras un error inesperado.",
+  "Up Next": "A continuación",
+  "Play Now": "Reproducir ahora",
+  "Play Next": "Reproducir después",
+  "Move Up": "Subir",
+  "Move Down": "Bajar",
+  "Remove from Queue": "Quitar de la cola",
+  "Removed from the queue.": "Quitada de la cola.",
+  "and %d more": "y %d más"
 }

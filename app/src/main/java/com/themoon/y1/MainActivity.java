@@ -12201,6 +12201,8 @@ public class MainActivity extends Activity {
             currentIndex = currentPlaylist.indexOf(currentSong);
             if (currentIndex == -1)
                 currentIndex = 0;
+            // 🚀 [Resume on start] The play order changed: save it, or a restore would pick the wrong track.
+            com.themoon.y1.managers.AudioPlayerManager.getInstance().afterQueueEdit(this);
         }
     }
 
@@ -15885,6 +15887,18 @@ public class MainActivity extends Activity {
                 .create();
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
+        // 🚀 [Up Next] See and edit what plays after this track.
+        if (currentPlaylist.size() > 1) {
+            View btnUpNext = createListButtonWithIcon("", t("Up Next"));
+            btnUpNext.setOnKeyListener(dialogWheelListener);
+            btnUpNext.setOnClickListener(v -> {
+                clickFeedback();
+                dialog.dismiss();
+                showUpNextDialog(currentIndex + 1);
+            });
+            layout.addView(btnUpNext);
+        }
+
         // 🚀 [버그 수리] Center 롱프레스가 이제 화면 잠금 전용이 되면서, 예전에 즐겨찾기를 켜고 끄던
         // "Center 더블클릭" 경로가 죽은 코드가 되어 즐겨찾기를 켤 방법이 아예 사라졌습니다 - 이 메뉴로 복구합니다.
         boolean isFav = favoritePaths.contains(songFile.getAbsolutePath());
@@ -15961,6 +15975,175 @@ public class MainActivity extends Activity {
                     layout.getChildAt(0).requestFocus();
             }
         }, 50);
+    }
+
+    // =======================================================
+    // 🚀 [Up Next] The queue from the playing track on: pick an entry to play it now, move it or remove it.
+    // =======================================================
+    // Only this many upcoming tracks are listed - a whole-library shuffle can queue thousands, and every
+    // row is a real view in the dialog.
+    private static final int UP_NEXT_MAX_ROWS = 50;
+
+    private void showUpNextDialog(int focusQueueIndex) {
+        if (currentPlaylist.isEmpty()) return;
+
+        // Titles and artists come from the library; files not in it (folder playback) show their name.
+        java.util.HashMap<String, SongItem> byPath = new java.util.HashMap<>();
+        for (SongItem s : customLibraryAll) byPath.put(s.file.getAbsolutePath(), s);
+        for (SongItem s : audiobookLibraryAll) byPath.put(s.file.getAbsolutePath(), s);
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
+
+        View focusTarget = null;
+        int last = Math.min(currentPlaylist.size() - 1, currentIndex + UP_NEXT_MAX_ROWS);
+        for (int i = currentIndex; i <= last; i++) {
+            final int queueIndex = i;
+            String label = queueRowLabel(currentPlaylist.get(i), byPath);
+            String prefix = (i == currentIndex) ? "▶ " : (i - currentIndex) + ". ";
+            View row = createListButtonWithIcon("", prefix + label);
+            row.setOnKeyListener(wheel);
+            if (i == currentIndex) {
+                row.setOnClickListener(v -> {
+                    clickFeedback();
+                    dialog.dismiss();
+                });
+            } else {
+                row.setOnClickListener(v -> {
+                    clickFeedback();
+                    dialog.dismiss();
+                    showQueueItemMenu(queueIndex);
+                });
+            }
+            layout.addView(row);
+            if (i == focusQueueIndex || focusTarget == null) focusTarget = row;
+        }
+
+        int hidden = currentPlaylist.size() - 1 - last;
+        if (hidden > 0) {
+            TextView more = new TextView(this);
+            more.setText(String.format(Locale.US, t("and %d more"), hidden));
+            more.setTextColor(0xFF888888);
+            more.setPadding(24, 12, 24, 12);
+            layout.addView(more);
+        }
+
+        dialog.show();
+        final View toFocus = focusTarget;
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (toFocus != null) toFocus.requestFocus();
+            }
+        }, 50);
+    }
+
+    private void showQueueItemMenu(final int queueIndex) {
+        if (queueIndex < 0 || queueIndex >= currentPlaylist.size()) return;
+        final com.themoon.y1.managers.AudioPlayerManager apm = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
+
+        addQueueMenuRow(layout, wheel, t("Play Now"), v -> {
+            dialog.dismiss();
+            apm.playQueueIndex(queueIndex);
+        });
+        if (queueIndex != currentIndex + 1) {
+            addQueueMenuRow(layout, wheel, t("Play Next"), v -> {
+                dialog.dismiss();
+                apm.playNextInQueue(queueIndex);
+                showUpNextDialog(currentIndex + 1);
+            });
+        }
+        // Moving above the playing track would take it out of "up next", so the first upcoming row stays put.
+        if (queueIndex > currentIndex + 1) {
+            addQueueMenuRow(layout, wheel, t("Move Up"), v -> {
+                dialog.dismiss();
+                apm.moveInQueue(queueIndex, queueIndex - 1);
+                showUpNextDialog(queueIndex - 1);
+            });
+        }
+        if (queueIndex < currentPlaylist.size() - 1) {
+            addQueueMenuRow(layout, wheel, t("Move Down"), v -> {
+                dialog.dismiss();
+                apm.moveInQueue(queueIndex, queueIndex + 1);
+                showUpNextDialog(queueIndex + 1);
+            });
+        }
+        addQueueMenuRow(layout, wheel, t("Remove from Queue"), v -> {
+            dialog.dismiss();
+            apm.removeFromQueue(queueIndex);
+            Toast.makeText(MainActivity.this, t("Removed from the queue."), Toast.LENGTH_SHORT).show();
+            if (currentPlaylist.size() > 1) showUpNextDialog(Math.min(queueIndex, currentPlaylist.size() - 1));
+        });
+        addQueueMenuRow(layout, wheel, t("Cancel"), v -> {
+            dialog.dismiss();
+            showUpNextDialog(queueIndex);
+        });
+
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
+            }
+        }, 50);
+    }
+
+    private void addQueueMenuRow(LinearLayout layout, View.OnKeyListener wheel, String label, View.OnClickListener action) {
+        View row = createListButtonWithIcon("", label);
+        row.setOnKeyListener(wheel);
+        row.setOnClickListener(v -> {
+            clickFeedback();
+            action.onClick(v);
+        });
+        layout.addView(row);
+    }
+
+    private String queueRowLabel(File file, java.util.Map<String, SongItem> byPath) {
+        SongItem s = byPath.get(file.getAbsolutePath());
+        if (s != null) return s.title + " – " + s.artist;
+        String name = file.getName();
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
+    // The click wheel arrives as DPAD left/right; move focus between the dialog's rows like the other menus.
+    private View.OnKeyListener dialogWheelKeyListener(final LinearLayout layout) {
+        return new View.OnKeyListener() {
+            @Override
+            public boolean onKey(View v, int keyCode, KeyEvent event) {
+                if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+                if (keyCode != 21 && keyCode != 22) return false;
+                int step = keyCode == 21 ? -1 : 1;
+                for (int i = layout.indexOfChild(v) + step; i >= 0 && i < layout.getChildCount(); i += step) {
+                    if (layout.getChildAt(i).isFocusable()) {
+                        layout.getChildAt(i).requestFocus();
+                        clickFeedback();
+                        return true;
+                    }
+                }
+                return true;
+            }
+        };
     }
 
     // 🚀 [자체 플레이리스트 엔진 4단계] 실시간 하드디스크 물리 레코딩 스트림
