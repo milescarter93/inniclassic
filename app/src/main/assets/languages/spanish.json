@@ -44,7 +44,7 @@
   "Format: Channel Name|RSS_URL": "Formato: Nombre del Canal|RSS_URL",
   "Today": "Hoy",
   "Yesterday": "Ayer",
-  "Recently Added": "Añadido recientemente",
+  "Recently Added": "Últimas añadidas",
   "Crossfeed": "Crossfeed",
   "EQ Engine Mode": "Modo de Motor EQ",
   "Normal (Default)": "Normal (Predeterminado)",
@@ -515,5 +515,7 @@
   "1 Minute": "1 minuto",
   "2 Minutes": "2 minutos",
   "Always On": "Siempre encendida",
-  "Paused": "En pausa"
+  "Paused": "En pausa",
+  "Recently Played": "Últimas escuchadas",
+  "Most Played": "Más escuchadas"
 }

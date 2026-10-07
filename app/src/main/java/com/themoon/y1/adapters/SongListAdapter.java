@@ -113,10 +113,28 @@ public class SongListAdapter extends BaseAdapter {
                 if (lastMod >= todayStart) datePrefix = "[" + MainActivity.instance.t("Today") + "] ";
                 else if (lastMod >= yesterdayStart) datePrefix = "[" + MainActivity.instance.t("Yesterday") + "] ";
                 else {
-                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yy.MM.dd");
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd/MM/yy", java.util.Locale.US);
                     datePrefix = "[" + sdf.format(new java.util.Date(lastMod)) + "] ";
                 }
                 displayTitle = datePrefix + song.title;
+            }
+            // 🚀 [Smart lists] Recently Played: when ("[Today] Title"); Most Played: how often ("Title  ·  5").
+            else if ("RECENT_PLAYED".equals(MainActivity.instance.virtualQueryType)
+                    || "MOST_PLAYED".equals(MainActivity.instance.virtualQueryType)) {
+                com.themoon.y1.managers.PlayHistory.Stats st =
+                        MainActivity.instance.smartListStats.get(song.file.getAbsolutePath());
+                if (st != null && "MOST_PLAYED".equals(MainActivity.instance.virtualQueryType)) {
+                    displayTitle = song.title + "  ·  " + st.count;
+                } else if (st != null) {
+                    java.util.Calendar cal = java.util.Calendar.getInstance();
+                    cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0);
+                    long todayStart = cal.getTimeInMillis();
+                    String when;
+                    if (st.lastPlayedMs >= todayStart) when = MainActivity.instance.t("Today");
+                    else if (st.lastPlayedMs >= todayStart - 24L * 60 * 60 * 1000) when = MainActivity.instance.t("Yesterday");
+                    else when = new java.text.SimpleDateFormat("dd/MM", java.util.Locale.US).format(new java.util.Date(st.lastPlayedMs));
+                    displayTitle = "[" + when + "] " + song.title;
+                }
             }
             // 🔍 3. [iPod 스타일] 검색 결과 모드일 때 - 무엇 때문에 매칭되었는지 작은 힌트를 붙여줍니다
             else if ("SEARCH".equals(MainActivity.instance.virtualQueryType)) {

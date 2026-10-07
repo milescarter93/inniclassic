@@ -8623,6 +8623,20 @@ public class MainActivity extends Activity {
                     containerBrowserItems.addView(btnRecent);
                 }
 
+                // 🚀 [Smart lists] From the play history in .scrobbler.log.
+                for (final String[] smart : new String[][] {
+                        { "recently_played", "RECENT_PLAYED" }, { "most_played", "MOST_PLAYED" } }) {
+                    if (isMusicMenuItemHidden(smart[0])) continue;
+                    View btnSmart = createListButtonWithIcon("\uE8B6", t(smartSongListLabel(smart[1])));
+                    btnSmart.setOnClickListener(v -> {
+                        clickFeedback();
+                        currentBrowserMode = BROWSER_RECENTLY_ADDED; // the smart lists share its back path
+                        virtualQueryType = smart[1];
+                        buildVirtualSongs();
+                    });
+                    containerBrowserItems.addView(btnSmart);
+                }
+
                 if (!isMusicMenuItemHidden("favorites")) {
                     View btnFav = createListButtonWithIcon("\uE8B6", t("My Favorites"));
                     btnFav.setOnClickListener(v -> {
@@ -10324,8 +10338,8 @@ public class MainActivity extends Activity {
         listVirtualSongs.setVisibility(View.VISIBLE);
 
         // 🚀 [수정] RECENT 모드일 때 헤더 타이틀 대응
-        if (virtualQueryType.equals("RECENT")) {
-            tvBrowserPath.setText(t("Recently Added"));
+        if (isSmartSongList(virtualQueryType)) {
+            tvBrowserPath.setText(t(smartSongListLabel(virtualQueryType)));
         } else if (virtualQueryType.equals("ALL")) {
             tvBrowserPath
                     .setText((isAudiobookLibraryMode ? t("All Audiobooks") : t("All Songs")));
@@ -10346,7 +10360,11 @@ public class MainActivity extends Activity {
         // 🚀 [Search] Fold the query once, not once per song.
         final String searchQuery = "SEARCH".equals(virtualQueryType) ? searchFold(virtualQueryValue) : "";
 
-        for (SongItem song : activeLibrary) {
+        // 🚀 [Smart lists] Recently Added / Recently Played / Most Played come already ordered.
+        final boolean isSmartList = isSmartSongList(virtualQueryType);
+        if (isSmartList) targetSongs.addAll(buildSmartSongList(virtualQueryType, activeLibrary));
+
+        for (SongItem song : isSmartList ? java.util.Collections.<SongItem>emptyList() : activeLibrary) {
             // 🚀 [대개조 완료] 가상 분류를 긁어올 때, 현재 노래 파일이 실제로 소속된 루트 폴더까지 2중으로 철저히 검사합니다!
             // 이렇게 격벽을 쳐주어야 'ALL'을 누르든 'ARTIST'를 누르든 뮤직 폴더의 파일이 오디오북 리스트로 절대 넘어오지 못합니다.
             boolean isPathMatched = false;
@@ -10404,7 +10422,7 @@ public class MainActivity extends Activity {
         // 🚀 [Sorting] Title keys (no accents, no leading "The") computed once per song.
         final java.util.IdentityHashMap<SongItem, String> titleKeys = new java.util.IdentityHashMap<>();
         for (SongItem s : targetSongs) titleKeys.put(s, sortKey(s.title));
-        java.util.Collections.sort(targetSongs, new java.util.Comparator<SongItem>() {
+        if (!isSmartList) java.util.Collections.sort(targetSongs, new java.util.Comparator<SongItem>() {
             @Override
             public int compare(SongItem s1, SongItem s2) {
                 // 앨범 모드이거나 커버 플로우에서 넘어왔을 때만 트랙 번호로 정렬!
@@ -10456,7 +10474,8 @@ public class MainActivity extends Activity {
 
         // 🚀 [스마트 포커스] 현재 재생 중인 곡이 리스트에 있다면 그 인덱스를 찾아냅니다!
         int targetIndex = -1;
-        if (currentPlaylist != null && !currentPlaylist.isEmpty() && currentIndex >= 0
+        // (Not in the smart lists: their point is what's at the top.)
+        if (!isSmartList && currentPlaylist != null && !currentPlaylist.isEmpty() && currentIndex >= 0
                 && currentIndex < currentPlaylist.size()) {
             File playingFile = currentPlaylist.get(currentIndex);
             for (int i = 0; i < targetSongs.size(); i++) {
@@ -13274,7 +13293,8 @@ public class MainActivity extends Activity {
                         // 🚀 [신규 장착] 최근 추가된 곡 목록에서 나갈 때의 복귀 경로!
                         else if (currentBrowserMode == BROWSER_RECENTLY_ADDED) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = t("Recently Added");
+                            lastBrowserFocusText = t(isSmartSongList(virtualQueryType)
+                                    ? smartSongListLabel(virtualQueryType) : "Recently Added");
                             buildFileBrowserUI();
                         }
                         // 🚀 [팟캐스트 탈출구 추가!]
@@ -16701,6 +16721,91 @@ public class MainActivity extends Activity {
 
     // Lower-cased text with accents removed ("Canción" -> "cancion"), for search comparisons. Called for
     // three fields of every song on each search, so plain-ASCII text (most titles) skips the normalizer.
+    // =======================================================
+    // 🚀 [Smart lists] Automatic song lists in the Music menu (virtualQueryType values below).
+    // - RECENT: the newest albums on the card (by their newest file), each in track order. It used to keep
+    //   only files from the last 5 days, sorted by title - empty unless music was copied that week.
+    // - RECENT_PLAYED / MOST_PLAYED: from the play history (PlayHistory, .scrobbler.log).
+    // =======================================================
+    private static final int SMART_LIST_SIZE = 100;
+    // Play stats of the songs in the smart list on screen, by path (the rows show them).
+    public final java.util.HashMap<String, com.themoon.y1.managers.PlayHistory.Stats> smartListStats = new java.util.HashMap<>();
+
+    static boolean isSmartSongList(String type) {
+        return "RECENT".equals(type) || "RECENT_PLAYED".equals(type) || "MOST_PLAYED".equals(type);
+    }
+
+    static String smartSongListLabel(String type) {
+        if ("RECENT_PLAYED".equals(type)) return "Recently Played";
+        if ("MOST_PLAYED".equals(type)) return "Most Played";
+        return "Recently Added";
+    }
+
+    private List<SongItem> buildSmartSongList(String type, List<SongItem> library) {
+        long started = System.currentTimeMillis();
+        smartListStats.clear();
+        String root = isAudiobookLibraryMode ? "/Audiobooks" : "/Music";
+        List<SongItem> pool = new ArrayList<>();
+        for (SongItem song : library)
+            if (song.file.getAbsolutePath().contains(root)) pool.add(song);
+
+        final List<SongItem> songs = new ArrayList<>();
+        if ("RECENT".equals(type)) {
+            java.util.LinkedHashMap<String, List<SongItem>> albums = new java.util.LinkedHashMap<>();
+            final java.util.HashMap<String, Long> newest = new java.util.HashMap<>();
+            for (SongItem song : pool) {
+                String key = song.albumArtist + '\u0001' + song.album;
+                List<SongItem> list = albums.get(key);
+                if (list == null) albums.put(key, list = new ArrayList<>());
+                list.add(song);
+                long[] stamp = fileStampMap.get(song.file.getAbsolutePath());
+                long modified = stamp != null && stamp[0] > 0 ? stamp[0] : song.file.lastModified();
+                Long seen = newest.get(key);
+                if (seen == null || modified > seen) newest.put(key, modified);
+            }
+            List<String> keys = new ArrayList<>(albums.keySet());
+            java.util.Collections.sort(keys, new java.util.Comparator<String>() {
+                @Override
+                public int compare(String a, String b) {
+                    return Long.compare(newest.get(b), newest.get(a));
+                }
+            });
+            for (String key : keys) {
+                List<SongItem> album = albums.get(key);
+                java.util.Collections.sort(album, new java.util.Comparator<SongItem>() {
+                    @Override
+                    public int compare(SongItem a, SongItem b) {
+                        Integer ta = trackNumberMap.get(a.file.getAbsolutePath());
+                        Integer tb = trackNumberMap.get(b.file.getAbsolutePath());
+                        int c = Integer.compare(ta != null ? ta : 0, tb != null ? tb : 0);
+                        return c != 0 ? c : a.title.compareToIgnoreCase(b.title);
+                    }
+                });
+                songs.addAll(album); // whole albums, until the list is long enough
+                if (songs.size() >= SMART_LIST_SIZE) break;
+            }
+        } else {
+            final java.util.IdentityHashMap<SongItem, com.themoon.y1.managers.PlayHistory.Stats> stats =
+                    com.themoon.y1.managers.PlayHistory.statsFor(pool);
+            songs.addAll(stats.keySet());
+            final boolean byCount = "MOST_PLAYED".equals(type);
+            java.util.Collections.sort(songs, new java.util.Comparator<SongItem>() {
+                @Override
+                public int compare(SongItem a, SongItem b) {
+                    com.themoon.y1.managers.PlayHistory.Stats sa = stats.get(a), sb = stats.get(b);
+                    if (byCount && sa.count != sb.count) return Integer.compare(sb.count, sa.count);
+                    return Long.compare(sb.lastPlayedMs, sa.lastPlayedMs);
+                }
+            });
+            while (songs.size() > SMART_LIST_SIZE) songs.remove(songs.size() - 1);
+            for (SongItem song : songs) smartListStats.put(song.file.getAbsolutePath(), stats.get(song));
+        }
+        android.util.Log.i("Y1History", type + ": " + songs.size() + " songs in "
+                + (System.currentTimeMillis() - started) + " ms"
+                + (songs.isEmpty() ? "" : ", first: " + songs.get(0).artist + " - " + songs.get(0).title));
+        return songs;
+    }
+
     private static String searchFold(String s) {
         if (s == null) return "";
         String lower = s.toLowerCase(Locale.ROOT);
@@ -17716,6 +17821,8 @@ public class MainActivity extends Activity {
             {"composers", "Composers"},
             {"years", "Years"},
             {"recently_added", "Recently Added"},
+            {"recently_played", "Recently Played"},
+            {"most_played", "Most Played"},
             {"favorites", "My Favorites"},
             {"audiobooks", "Audiobooks"},
             {"folders", "Folders"},
