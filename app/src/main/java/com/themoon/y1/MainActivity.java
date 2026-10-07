@@ -1076,6 +1076,17 @@ public class MainActivity extends Activity {
                 int batteryPct = (int) ((level / (float) scale) * 100);
                 tvStatusBattery.setText(batteryPct + "%");
 
+                // 🚀 [Battery] Remember the details for Settings > Battery and feed the time estimate.
+                batteryLevelPct = batteryPct;
+                batteryStatus = status;
+                batteryPlugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0);
+                batteryHealth = intent.getIntExtra(BatteryManager.EXTRA_HEALTH, 0);
+                batteryTempTenths = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE);
+                batteryMillivolts = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0);
+                com.themoon.y1.managers.BatteryEstimator.getInstance(MainActivity.this).onBatteryChanged(
+                        batteryPct, batteryPlugged != 0, status == BatteryManager.BATTERY_STATUS_FULL);
+                refreshBatteryInfoScreen();
+
                 // 🚀 새로 만든 배터리 아이콘에 현재 용량과 충전 여부를 쏴줍니다!
                 if (batteryIconView != null) {
                     batteryIconView.setBatteryLevel(batteryPct, isCharging);
@@ -2109,6 +2120,16 @@ public class MainActivity extends Activity {
         blp.gravity = Gravity.CENTER_VERTICAL;
         blp.setMargins((int) (8 * density), 0, (int) (4 * density), 0);
         statusParent.addView(batteryIconView, bIdx, blp);
+        // 🚀 [Battery] Optional percentage, left of the icon (Settings > Battery > Battery Percentage).
+        statusParent.removeView(tvStatusBattery);
+        LinearLayout.LayoutParams pctLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        pctLp.gravity = Gravity.CENTER_VERTICAL;
+        pctLp.setMargins((int) (6 * density), 0, 0, 0);
+        statusParent.addView(tvStatusBattery, statusParent.indexOfChild(batteryIconView), pctLp);
+        tvStatusBattery.setShadowLayer(0, 0, 0, 0);
+        isBatteryPercentOn = prefs.getBoolean("battery_percent", true);
+        tvStatusBattery.setVisibility(isBatteryPercentOn ? View.VISIBLE : View.GONE);
         ivStatusBluetooth = findViewById(R.id.iv_status_bluetooth);
         ivStatusWifi = findViewById(R.id.iv_status_wifi);
         ivStatusHeadphone = findViewById(R.id.iv_status_headphone);
@@ -6924,6 +6945,18 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnBrightMenu);
+
+        // 🚀 [Battery] Level, charge state, estimated time left and the status bar percentage option.
+        LinearLayout btnBatteryMenu = createSettingRow("Battery",
+                (batteryLevelPct >= 0 ? batteryLevelPct + "% " : "") + "〉 ");
+        btnBatteryMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildBatteryUI();
+            }
+        });
+        containerSettingsItems.addView(btnBatteryMenu);
 
         LinearLayout btnStorageMenu = createSettingRow("About", "〉 ");
         btnStorageMenu.setOnClickListener(new View.OnClickListener() {
@@ -12259,6 +12292,90 @@ public class MainActivity extends Activity {
         return sb.toString();
     }
 
+    // 🚀 [Battery] Last ACTION_BATTERY_CHANGED values, for Settings > Battery.
+    private boolean isBatteryPercentOn = true;
+    private int batteryLevelPct = -1, batteryStatus, batteryPlugged, batteryHealth, batteryMillivolts;
+    private int batteryTempTenths = Integer.MIN_VALUE;
+    private TextView[] batteryValueViews; // value column of the Battery screen while it's shown
+
+    private void buildBatteryUI() {
+        currentSettingsDepth = 1;
+        containerSettingsItems.removeAllViews();
+
+        final LinearLayout rowPercent = createSettingRow("Battery Percentage", isBatteryPercentOn ? t("ON") : t("OFF"));
+        rowPercent.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isBatteryPercentOn = !isBatteryPercentOn;
+                prefs.edit().putBoolean("battery_percent", isBatteryPercentOn).commit();
+                ((TextView) rowPercent.getChildAt(1)).setText(isBatteryPercentOn ? t("ON") : t("OFF"));
+                tvStatusBattery.setVisibility(isBatteryPercentOn ? View.VISIBLE : View.GONE);
+            }
+        });
+        containerSettingsItems.addView(rowPercent);
+
+        String[] labels = { "Level", "Status", "Time Left", "Temperature", "Voltage", "Health" };
+        batteryValueViews = new TextView[labels.length];
+        for (int i = 0; i < labels.length; i++) {
+            LinearLayout row = createSettingRow(labels[i], "");
+            batteryValueViews[i] = (TextView) row.getChildAt(1);
+            containerSettingsItems.addView(row);
+        }
+        refreshBatteryInfoScreen();
+
+        if (containerSettingsItems.getChildCount() > 0)
+            containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    private void refreshBatteryInfoScreen() {
+        if (batteryValueViews == null || currentSettingsDepth != 1
+                || batteryValueViews[0].getParent() == null
+                || ((View) batteryValueViews[0].getParent()).getParent() != containerSettingsItems)
+            return;
+        com.themoon.y1.managers.BatteryEstimator estimator = com.themoon.y1.managers.BatteryEstimator.getInstance(this);
+        boolean full = batteryStatus == BatteryManager.BATTERY_STATUS_FULL
+                || (batteryPlugged != 0 && batteryLevelPct >= 100);
+
+        batteryValueViews[0].setText(batteryLevelPct >= 0 ? batteryLevelPct + "%" : "—");
+        batteryValueViews[1].setText(batteryPlugged == 0 ? t("On Battery") : (full ? t("Charged") : t("Charging")));
+
+        // "Time Left" on battery, "Full In" while charging.
+        View timeRow = (View) batteryValueViews[2].getParent();
+        TextView timeLabel = (TextView) ((LinearLayout) timeRow).getChildAt(0);
+        long est = estimator.estimateMs();
+        if (batteryPlugged != 0 && full) {
+            timeRow.setVisibility(View.GONE);
+        } else {
+            timeRow.setVisibility(View.VISIBLE);
+            timeLabel.setText(t(batteryPlugged != 0 ? "Full In" : "Time Left"));
+            batteryValueViews[2].setText(est < 0 ? t("Calculating...") : "≈ " + formatBatteryTime(est));
+        }
+
+        batteryValueViews[3].setText(batteryTempTenths == Integer.MIN_VALUE ? "—"
+                : String.format(Locale.US, t("%1$d.%2$d °C"), batteryTempTenths / 10, Math.abs(batteryTempTenths % 10)));
+        batteryValueViews[4].setText(batteryMillivolts <= 0 ? "—"
+                : String.format(Locale.US, t("%1$d.%2$02d V"), batteryMillivolts / 1000, (batteryMillivolts % 1000) / 10));
+        String health;
+        switch (batteryHealth) {
+            case BatteryManager.BATTERY_HEALTH_GOOD: health = "Good"; break;
+            case BatteryManager.BATTERY_HEALTH_OVERHEAT: health = "Overheating"; break;
+            case BatteryManager.BATTERY_HEALTH_COLD: health = "Cold"; break;
+            case BatteryManager.BATTERY_HEALTH_DEAD: health = "Dead"; break;
+            case BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE: health = "Over Voltage"; break;
+            case BatteryManager.BATTERY_HEALTH_UNSPECIFIED_FAILURE: health = "Failure"; break;
+            default: health = "Unknown"; break;
+        }
+        batteryValueViews[5].setText(t(health));
+    }
+
+    // Rounded to 5 minutes: the estimate isn't more precise than that.
+    private String formatBatteryTime(long ms) {
+        long minutes = Math.max(5, Math.round(ms / 300000.0) * 5);
+        if (minutes < 60) return String.format(Locale.US, t("%d min"), minutes);
+        return String.format(Locale.US, t("%1$d h %2$d min"), minutes / 60, minutes % 60);
+    }
+
     // 🚀 [신규 추가] 휠 버튼을 길게 누를 때 작동할 즐겨찾기 스위치 함수! (다른 함수들 사이에 넣으세요)
     private void toggleFavorite() {
         if (currentPlaylist.isEmpty())
@@ -14338,6 +14455,7 @@ public class MainActivity extends Activity {
                     .remove("album_tilt_enabled")
                     .remove("cover_motion_enabled")
                     .remove("now_playing_info")
+                    .remove("battery_percent")
                     .remove("backlight_timer_index")
                     .remove("screen_off_control")
                     .remove("repeat_mode")
@@ -14359,6 +14477,8 @@ public class MainActivity extends Activity {
         refreshCoverPanAnimations();
         nowPlayingInfoMode = 3;
         updateNowPlayingInfo();
+        isBatteryPercentOn = true;
+        if (tvStatusBattery != null) tvStatusBattery.setVisibility(View.VISIBLE);
         backlightTimerIndex = 3;
         isScreenOffControlEnabled = false;
         repeatMode = 0;
