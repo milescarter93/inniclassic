@@ -751,19 +751,12 @@ public class MainActivity extends Activity {
     public void turnOffScreen() {
         if (inputLocked) return;
         inputLocked = true;
-        if (lockScreenNotice == null) {
-            lockScreenNotice = new TextView(this);
-            lockScreenNotice.setGravity(Gravity.CENTER);
-            lockScreenNotice.setTextColor(Color.WHITE);
-            lockScreenNotice.setBackgroundColor(Color.BLACK);
-            lockScreenNotice.setTextSize(20);
-            lockScreenNotice.setTypeface(ThemeManager.getCustomFontBold());
-            ((ViewGroup) findViewById(android.R.id.content)).addView(lockScreenNotice,
-                    new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        }
-        lockScreenNotice.setText(t("Locked") + "\n\n" + t("Hold Center to unlock"));
+        // 🚀 [Lock screen] A mini Now Playing instead of a bare "Locked" notice (see buildLockScreen()).
+        if (lockScreenNotice == null) buildLockScreen();
         lockScreenNotice.setVisibility(View.VISIBLE);
         lockScreenNotice.bringToFront();
+        lockCoverPath = null; // pick up the current cover
+        startLockScreenTicks();
         doubleClickHandler.removeCallbacks(singleClickRunnable);
         com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
         // 🚀 [웹 서버 방어막] 라디오뿐만 아니라 서버가 돌아갈 때도 '가상 암전 모드'를 사용하여 CPU가 잠들지 않게 보호합니다!
@@ -3502,6 +3495,10 @@ public class MainActivity extends Activity {
     private void onDisplayIdleChanged() {
         refreshCoverPanAnimations();
         if (!isDisplayIdle()) {
+            if (inputLocked) {
+                lockCoverPath = null; // the track may have changed while the screen was off
+                startLockScreenTicks();
+            }
             clockHandler.removeCallbacks(clockTask);
             clockHandler.post(clockTask);
             if (com.themoon.y1.managers.AudioPlayerManager.getInstance().isPlaying()) {
@@ -13634,8 +13631,151 @@ public class MainActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
-    private TextView lockScreenNotice;
+    private View lockScreenNotice; // the lock screen (buildLockScreen)
     private boolean inputLocked;
+
+    // 🚀 [Lock screen] While the keys are locked the screen shows the time, battery and a mini Now Playing
+    // (cover, title, artist, album, play state, progress). Refreshed every second while it can be seen.
+    private TextView lockClock, lockBattery, lockTitle, lockArtist, lockAlbum, lockState, lockTimeCur, lockTimeLeft;
+    private ImageView lockCover;
+    private ProgressBar lockProgress;
+    private View lockNowPlaying;
+    private String lockCoverPath; // track whose cover the lock screen shows
+    private final Handler lockTickHandler = new Handler();
+    private final Runnable lockTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!inputLocked || lockScreenNotice == null || lockScreenNotice.getVisibility() != View.VISIBLE
+                    || isDisplayIdle())
+                return; // onDisplayIdleChanged() restarts it when the screen comes back
+            refreshLockScreen();
+            lockTickHandler.postDelayed(this, 1000);
+        }
+    };
+
+    private void startLockScreenTicks() {
+        lockTickHandler.removeCallbacks(lockTick);
+        lockTickHandler.post(lockTick);
+    }
+
+    private void buildLockScreen() {
+        float d = getResources().getDisplayMetrics().density;
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.BLACK);
+        root.setClickable(true);
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        col.setPadding((int) (18 * d), (int) (14 * d), (int) (18 * d), (int) (10 * d));
+        root.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        lockClock = lockText(42, Color.WHITE, true);
+        lockClock.setGravity(Gravity.CENTER);
+        col.addView(lockClock);
+        lockBattery = lockText(14, 0xFF9A9A9F, false);
+        lockBattery.setGravity(Gravity.CENTER);
+        col.addView(lockBattery);
+
+        LinearLayout np = new LinearLayout(this);
+        np.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams npLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        npLp.topMargin = (int) (12 * d);
+        col.addView(np, npLp);
+        lockNowPlaying = np;
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        np.addView(row);
+        lockCover = new ImageView(this);
+        lockCover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        LinearLayout.LayoutParams coverLp = new LinearLayout.LayoutParams((int) (112 * d), (int) (112 * d));
+        coverLp.rightMargin = (int) (14 * d);
+        row.addView(lockCover, coverLp);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        lockTitle = lockText(19, Color.WHITE, true);
+        lockArtist = lockText(15, 0xFFD0D0D5, false);
+        lockAlbum = lockText(15, 0xFF9A9A9F, false);
+        lockState = lockText(13, 0xFF9A9A9F, false);
+        for (TextView tv : new TextView[] { lockTitle, lockArtist, lockAlbum, lockState }) {
+            tv.setSingleLine(true);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            texts.addView(tv);
+        }
+        ((LinearLayout.LayoutParams) lockState.getLayoutParams()).topMargin = (int) (6 * d);
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        barLp.topMargin = (int) (14 * d);
+        np.addView(bar, barLp);
+        lockTimeCur = lockText(14, Color.WHITE, true);
+        bar.addView(lockTimeCur, new LinearLayout.LayoutParams((int) (50 * d), ViewGroup.LayoutParams.WRAP_CONTENT));
+        lockProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        lockProgress.setProgressDrawable(getResources().getDrawable(R.drawable.progress_bar_now_playing).mutate());
+        lockProgress.setMax(1000);
+        bar.addView(lockProgress, new LinearLayout.LayoutParams(0, (int) (12 * d), 1f));
+        lockTimeLeft = lockText(14, Color.WHITE, true);
+        lockTimeLeft.setGravity(Gravity.RIGHT);
+        bar.addView(lockTimeLeft, new LinearLayout.LayoutParams((int) (56 * d), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView hint = lockText(13, 0xFF9A9A9F, false);
+        hint.setGravity(Gravity.CENTER);
+        hint.setText("🔒 " + t("Hold Center to unlock"));
+        col.addView(hint);
+
+        lockScreenNotice = root;
+        ((ViewGroup) findViewById(android.R.id.content)).addView(root,
+                new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private TextView lockText(float sp, int color, boolean bold) {
+        TextView tv = new TextView(this);
+        tv.setTextSize(sp);
+        tv.setTextColor(color);
+        tv.setTypeface(bold ? ThemeManager.getCustomFontBold() : ThemeManager.getCustomFont());
+        return tv;
+    }
+
+    private void refreshLockScreen() {
+        lockClock.setText(new SimpleDateFormat(is24HourFormat ? "HH:mm" : "h:mm a", Locale.US).format(new Date()));
+        lockBattery.setText(batteryLevelPct < 0 ? ""
+                : (batteryPlugged != 0 ? "⚡ " : "") + t("Battery") + " " + batteryLevelPct + "%");
+
+        boolean hasTrack = currentIndex >= 0 && currentIndex < currentPlaylist.size();
+        lockNowPlaying.setVisibility(hasTrack ? View.VISIBLE : View.INVISIBLE);
+        if (!hasTrack) return;
+
+        String path = currentPlaylist.get(currentIndex).getAbsolutePath();
+        if (!path.equals(lockCoverPath)) {
+            lockCoverPath = path;
+            // Same picture as the Now Playing cover (the bitmap, not the drawable, so the views don't share state).
+            android.graphics.drawable.Drawable art = ivAlbumArt != null ? ivAlbumArt.getDrawable() : null;
+            if (art instanceof android.graphics.drawable.BitmapDrawable
+                    && ((android.graphics.drawable.BitmapDrawable) art).getBitmap() != null)
+                lockCover.setImageBitmap(((android.graphics.drawable.BitmapDrawable) art).getBitmap());
+            else
+                lockCover.setImageResource(R.drawable.default_album);
+        }
+        lockTitle.setText(tvPlayerTitle.getText());
+        lockArtist.setText(tvPlayerArtist.getText());
+        lockAlbum.setText(tvPlayerAlbum.getText());
+
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        int position = am.getCurrentPosition(), duration = am.getDuration();
+        String state = am.isPlaying() ? "▶  " + t("Now Playing") : "❚❚  " + t("Paused");
+        if (currentPlaylist.size() > 1)
+            state += "  ·  " + String.format(Locale.US, t("%1$d of %2$d"), currentIndex + 1, currentPlaylist.size());
+        lockState.setText(state);
+        lockTimeCur.setText(formatTime(position));
+        lockTimeLeft.setText("-" + formatTime(Math.max(0, duration - position)));
+        lockProgress.setProgress(duration > 0 ? (int) (position * 1000L / duration) : 0);
+    }
     private boolean centerGestureDown;
     private boolean centerGestureHandled;
     private final Handler centerGestureHandler = new Handler();
