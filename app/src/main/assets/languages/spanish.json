@@ -517,5 +517,11 @@
   "Always On": "Siempre encendida",
   "Paused": "En pausa",
   "Recently Played": "Últimas escuchadas",
-  "Most Played": "Más escuchadas"
+  "Most Played": "Más escuchadas",
+  "Never Played": "Nunca escuchadas",
+  "Forgotten Favorites": "Favoritas olvidadas",
+  "Top Rated": "Mejor valoradas",
+  "New Releases": "Novedades",
+  "2000s Music": "Música de los 2000",
+  "No songs match this list's rules yet.": "Todavía no hay canciones que cumplan las reglas de esta lista."
 }

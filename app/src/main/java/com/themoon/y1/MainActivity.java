@@ -373,6 +373,7 @@ public class MainActivity extends Activity {
     private static final int BROWSER_GENRES = 11;
     private static final int BROWSER_COMPOSERS = 21;
     private static final int BROWSER_TRACK_ARTISTS = 22; // 🚀 [신규] "Artists" - 트랙 아티스트 기준 (Album Artists와 별개)
+    private static final int BROWSER_SMART_SONGS = 30; // 🚀 [Smart playlists] songs of a rule-based playlist
     private static final int BROWSER_RECENTLY_ADDED = 12; // 🚀 [신규 장착] 최근 추가된 곡 상태
     // 🚀 [팟캐스트 엔진] 전용 상태 변수 추가!
     private static final int BROWSER_PODCAST_CHANNELS = 13;
@@ -10338,7 +10339,9 @@ public class MainActivity extends Activity {
         listVirtualSongs.setVisibility(View.VISIBLE);
 
         // 🚀 [수정] RECENT 모드일 때 헤더 타이틀 대응
-        if (isSmartSongList(virtualQueryType)) {
+        if ("SMART".equals(virtualQueryType)) {
+            tvBrowserPath.setText(virtualQueryValue);
+        } else if (isSmartSongList(virtualQueryType)) {
             tvBrowserPath.setText(t(smartSongListLabel(virtualQueryType)));
         } else if (virtualQueryType.equals("ALL")) {
             tvBrowserPath
@@ -13252,6 +13255,10 @@ public class MainActivity extends Activity {
                                 lastBrowserFocusText = t("Playlists");
                                 buildFileBrowserUI();
                             }
+                        } else if (currentBrowserMode == BROWSER_SMART_SONGS) {
+                            currentBrowserMode = BROWSER_PLAYLISTS;
+                            lastBrowserFocusText = virtualQueryValue; // back onto the smart list's row
+                            buildM3uPlaylistUI();
                         } else if (currentBrowserMode == BROWSER_M3U_SONGS) {
                             currentBrowserMode = BROWSER_PLAYLISTS;
                             if (currentM3uFile != null) {
@@ -15945,7 +15952,23 @@ public class MainActivity extends Activity {
         // 알파벳 대소문자 구분 없이 깔끔하게 정렬
         java.util.Collections.sort(m3uFiles, (f1, f2) -> f1.getName().compareToIgnoreCase(f2.getName()));
 
-        if (m3uFiles.isEmpty()) {
+        // 🚀 [Smart playlists] Rule-based lists (Y1_Playlists/Smart/*.json) first, like the iPod.
+        com.themoon.y1.managers.SmartPlaylist.createStarterListsIfMissing(this::t);
+        List<com.themoon.y1.managers.SmartPlaylist> smartLists = com.themoon.y1.managers.SmartPlaylist.loadAll();
+        for (final com.themoon.y1.managers.SmartPlaylist smart : smartLists) {
+            View b = createListButtonWithIcon("\uE8B6", smart.name);
+            b.setOnClickListener(v -> {
+                clickFeedback();
+                currentSmartPlaylist = smart;
+                currentBrowserMode = BROWSER_SMART_SONGS;
+                virtualQueryType = "SMART";
+                virtualQueryValue = smart.name;
+                buildVirtualSongs();
+            });
+            containerBrowserItems.addView(b);
+        }
+
+        if (m3uFiles.isEmpty() && smartLists.isEmpty()) {
             View btnEmpty = createListButtonWithIcon("\uE05F", t("No .m3u files found in Y1_Playlists"),
                     ThemeManager.getTextColorSecondary());
             containerBrowserItems.addView(btnEmpty);
@@ -16732,8 +16755,11 @@ public class MainActivity extends Activity {
     public final java.util.HashMap<String, com.themoon.y1.managers.PlayHistory.Stats> smartListStats = new java.util.HashMap<>();
 
     static boolean isSmartSongList(String type) {
-        return "RECENT".equals(type) || "RECENT_PLAYED".equals(type) || "MOST_PLAYED".equals(type);
+        return "RECENT".equals(type) || "RECENT_PLAYED".equals(type) || "MOST_PLAYED".equals(type)
+                || "SMART".equals(type);
     }
+
+    private com.themoon.y1.managers.SmartPlaylist currentSmartPlaylist; // the rule-based list on screen
 
     static String smartSongListLabel(String type) {
         if ("RECENT_PLAYED".equals(type)) return "Recently Played";
@@ -16750,7 +16776,41 @@ public class MainActivity extends Activity {
             if (song.file.getAbsolutePath().contains(root)) pool.add(song);
 
         final List<SongItem> songs = new ArrayList<>();
-        if ("RECENT".equals(type)) {
+        if ("SMART".equals(type)) {
+            if (currentSmartPlaylist == null) return songs;
+            final java.util.IdentityHashMap<SongItem, com.themoon.y1.managers.PlayHistory.Stats> stats =
+                    com.themoon.y1.managers.PlayHistory.statsFor(pool);
+            songs.addAll(currentSmartPlaylist.evaluate(pool, new com.themoon.y1.managers.SmartPlaylist.Env() {
+                @Override
+                public int rating(SongItem song) {
+                    return getSongRating(song.file.getAbsolutePath());
+                }
+
+                @Override
+                public com.themoon.y1.managers.PlayHistory.Stats stats(SongItem song) {
+                    return stats.get(song);
+                }
+
+                @Override
+                public long addedMs(SongItem song) {
+                    long[] stamp = fileStampMap.get(song.file.getAbsolutePath());
+                    return stamp != null && stamp[0] > 0 ? stamp[0] : song.file.lastModified();
+                }
+
+                @Override
+                public int track(SongItem song) {
+                    Integer n = trackNumberMap.get(song.file.getAbsolutePath());
+                    return n != null ? n : 0;
+                }
+
+                @Override
+                public int year(SongItem song) {
+                    return yearOf(song.year);
+                }
+            }));
+            if (songs.isEmpty())
+                Toast.makeText(this, t("No songs match this list's rules yet."), Toast.LENGTH_LONG).show();
+        } else if ("RECENT".equals(type)) {
             java.util.LinkedHashMap<String, List<SongItem>> albums = new java.util.LinkedHashMap<>();
             final java.util.HashMap<String, Long> newest = new java.util.HashMap<>();
             for (SongItem song : pool) {
