@@ -340,6 +340,9 @@
                     <TextView android:id="@+id/tv_player_album" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Album" android:textColor="#3C3C43" android:textSize="15sp" android:gravity="left" android:layout_marginTop="4dp" android:singleLine="true" android:ellipsize="end" />
                     <TextView android:id="@+id/tv_player_rating" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:textColor="#6194D1" android:textSize="15sp" android:gravity="left" android:layout_marginTop="4dp" android:visibility="gone"/>
                     <TextView android:id="@+id/tv_player_track_count" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="1 of 1" android:textColor="#8E8E93" android:textSize="15sp" android:textStyle="bold" android:gravity="left" android:layout_marginTop="4dp"/>
+                    <!-- "Now Playing Info" setting: format line and next song (filled by updateNowPlayingInfo) -->
+                    <TextView android:id="@+id/tv_player_format" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:textColor="#8E8E93" android:textSize="13sp" android:gravity="left" android:layout_marginTop="10dp" android:singleLine="true" android:ellipsize="end" android:visibility="gone"/>
+                    <TextView android:id="@+id/tv_player_next" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:textColor="#8E8E93" android:textSize="13sp" android:gravity="left" android:layout_marginTop="2dp" android:singleLine="true" android:ellipsize="end" android:visibility="gone"/>
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>

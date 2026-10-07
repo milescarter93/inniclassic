@@ -473,5 +473,14 @@
   "설정창을 엽니다...": "Abriendo ajustes...",
   "🚨 앱을 실행할 수 없습니다.": "🚨 No se puede abrir la aplicación.",
   "🚨 앱이 설치되어 있지 않습니다.": "🚨 La aplicación no está instalada.",
-  "FM Radio": "Radio FM"
+  "FM Radio": "Radio FM",
+  "Now Playing Info": "Info. en Reproduciendo",
+  "Format": "Formato",
+  "Next Song": "Siguiente canción",
+  "Format & Next": "Formato y siguiente",
+  "Next: %s": "Siguiente: %s",
+  "%d kbps": "%d kbps",
+  "%d kHz": "%d kHz",
+  "%1$d.%2$d kHz": "%1$d,%2$d kHz",
+  "%d-bit": "%d bits"
 }

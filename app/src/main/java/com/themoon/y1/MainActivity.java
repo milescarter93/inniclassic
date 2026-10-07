@@ -1792,6 +1792,7 @@ public class MainActivity extends Activity {
             isSoundCheckEnabled = prefs.getBoolean("sound_check_enabled", false);
             isAlbumTiltEnabled = prefs.getBoolean("album_tilt_enabled", true);
             isCoverMotionEnabled = prefs.getBoolean("cover_motion_enabled", true);
+            nowPlayingInfoMode = prefs.getInt("now_playing_info", 3) & 3;
         } catch (Exception e) {
         }
         // 💡 [EQ 프리셋 목록 자동 로드] 기기가 지원하는 이퀄라이저 리스트를 가져옵니다.
@@ -2209,6 +2210,8 @@ public class MainActivity extends Activity {
         playerProgress = findViewById(R.id.player_progress); // 💖 프로그레시브바 완벽 노출 보호
         tvPlayerTrackCount = findViewById(R.id.tv_player_track_count);
         tvPlayerRating = findViewById(R.id.tv_player_rating);
+        tvPlayerFormat = findViewById(R.id.tv_player_format);
+        tvPlayerNext = findViewById(R.id.tv_player_next);
 
         ivPlayerShuffleStatus = findViewById(R.id.iv_player_shuffle_status);
         ivPlayerRepeatStatus = findViewById(R.id.iv_player_repeat_status);
@@ -6497,6 +6500,21 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnCoverMotion);
+
+        // 🚀 [Now Playing Info] Format line and/or next song under the track counter.
+        final LinearLayout btnNowPlayingInfo = createSettingRow("Now Playing Info",
+                t(NOW_PLAYING_INFO_LABELS[nowPlayingInfoMode]));
+        btnNowPlayingInfo.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                nowPlayingInfoMode = (nowPlayingInfoMode + 1) % NOW_PLAYING_INFO_LABELS.length;
+                prefs.edit().putInt("now_playing_info", nowPlayingInfoMode).commit();
+                ((TextView) btnNowPlayingInfo.getChildAt(1)).setText(t(NOW_PLAYING_INFO_LABELS[nowPlayingInfoMode]));
+                updateNowPlayingInfo();
+            }
+        });
+        containerSettingsItems.addView(btnNowPlayingInfo);
 
         // 🚀 [신규 추가] 구글 ExoPlayer 타임 스트레칭 (배속 재생) 컨트롤 스위치!
         final String[] speedLabels = { "1.0x (Normal)", "1.2x (Fast)", "1.5x (Faster)", "2.0x (Very Fast)" };
@@ -12132,6 +12150,113 @@ public class MainActivity extends Activity {
             }
         } catch (Exception e) {
         }
+        updateNowPlayingInfo(); // repeat/shuffle changes what plays next
+    }
+
+    // 🚀 [Now Playing Info] Settings > "Now Playing Info": a format line ("MP3 · 320 kbps · 44.1 kHz")
+    // and/or the song that plays next, under the "4 of 14" counter.
+    // Mode bits: 1 = format, 2 = next song (0 = off, 3 = both).
+    private static final String[] NOW_PLAYING_INFO_LABELS = { "Off", "Format", "Next Song", "Format & Next" };
+    private int nowPlayingInfoMode = 3;
+    private TextView tvPlayerFormat, tvPlayerNext;
+    private String formatInfoPath; // the track the format line belongs to
+    private com.themoon.y1.managers.TrackFormatInfo formatInfo;
+    private String nextInfoPath, nextInfoTitle; // last next-song lookup
+    private final java.util.concurrent.ExecutorService formatInfoExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    public void updateNowPlayingInfo() {
+        if (tvPlayerFormat == null || tvPlayerNext == null) return;
+        File current = (currentIndex >= 0 && currentIndex < currentPlaylist.size()) ? currentPlaylist.get(currentIndex) : null;
+
+        if (current != null && (nowPlayingInfoMode & 1) != 0) {
+            final String path = current.getAbsolutePath();
+            final long duration = com.themoon.y1.managers.AudioPlayerManager.getInstance().getDuration();
+            boolean newTrack = !path.equals(formatInfoPath);
+            // Ogg/Opus/M4A only get a bitrate once the player knows the duration: read again then.
+            boolean nowHasDuration = formatInfo != null && formatInfo.needsDuration && duration > 0;
+            if (newTrack || nowHasDuration) {
+                if (newTrack) {
+                    tvPlayerFormat.setText("");
+                    formatInfo = null;
+                } else {
+                    formatInfo.needsDuration = false; // one re-read is enough
+                }
+                formatInfoPath = path;
+                final File file = current;
+                formatInfoExecutor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        final com.themoon.y1.managers.TrackFormatInfo info =
+                                com.themoon.y1.managers.TrackFormatInfo.read(file, duration);
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (!path.equals(formatInfoPath)) return; // the track changed meanwhile
+                                formatInfo = info;
+                                String text = describeFormat(info);
+                                tvPlayerFormat.setText(text);
+                                android.util.Log.i("Y1NowPlaying", "format " + file.getName() + " -> " + text);
+                            }
+                        });
+                    }
+                });
+            }
+            tvPlayerFormat.setVisibility(View.VISIBLE);
+        } else {
+            tvPlayerFormat.setVisibility(View.GONE);
+        }
+
+        int next = current != null ? nextQueueIndex() : -1;
+        if (next >= 0 && (nowPlayingInfoMode & 2) != 0) {
+            File nextFile = currentPlaylist.get(next);
+            String nextPath = nextFile.getAbsolutePath();
+            if (!nextPath.equals(nextInfoPath)) {
+                nextInfoPath = nextPath;
+                nextInfoTitle = songTitleFor(nextFile);
+                android.util.Log.i("Y1NowPlaying", "next " + (next + 1) + "/" + currentPlaylist.size() + " -> " + nextInfoTitle);
+            }
+            tvPlayerNext.setText(String.format(t("Next: %s"), nextInfoTitle));
+            tvPlayerNext.setVisibility(View.VISIBLE);
+        } else {
+            tvPlayerNext.setVisibility(View.GONE);
+        }
+    }
+
+    // The queue index that plays when the current song ends, or -1 when playback stops there.
+    private int nextQueueIndex() {
+        int size = currentPlaylist.size();
+        if (size == 0 || currentIndex < 0 || currentIndex >= size) return -1;
+        if (repeatMode == 1) return currentIndex;            // Repeat One
+        if (currentIndex + 1 < size) return currentIndex + 1;
+        return repeatMode == 2 ? 0 : -1;                     // Repeat All wraps; Off stops
+    }
+
+    private String songTitleFor(File file) {
+        String path = file.getAbsolutePath();
+        for (SongItem s : customLibrary)
+            if (s.file.getAbsolutePath().equals(path) && s.title != null && !s.title.trim().isEmpty()) return s.title;
+        for (SongItem s : audiobookLibrary)
+            if (s.file.getAbsolutePath().equals(path) && s.title != null && !s.title.trim().isEmpty()) return s.title;
+        String name = file.getName();
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
+    private String describeFormat(com.themoon.y1.managers.TrackFormatInfo info) {
+        StringBuilder sb = new StringBuilder(info.codec);
+        if (info.vbr) sb.append(" VBR");
+        if (info.lossless && info.bitsPerSample > 0)
+            sb.append(" · ").append(String.format(Locale.US, t("%d-bit"), info.bitsPerSample));
+        else if (info.kbps > 0)
+            sb.append(" · ").append(String.format(Locale.US, t("%d kbps"), info.kbps));
+        if (info.sampleRate > 0) {
+            int whole = info.sampleRate / 1000, tenth = (info.sampleRate % 1000) / 100;
+            sb.append(" · ").append(tenth == 0
+                    ? String.format(Locale.US, t("%d kHz"), whole)
+                    : String.format(Locale.US, t("%1$d.%2$d kHz"), whole, tenth));
+        }
+        return sb.toString();
     }
 
     // 🚀 [신규 추가] 휠 버튼을 길게 누를 때 작동할 즐겨찾기 스위치 함수! (다른 함수들 사이에 넣으세요)
@@ -14212,6 +14337,7 @@ public class MainActivity extends Activity {
                     .remove("video_stretch_fill")
                     .remove("album_tilt_enabled")
                     .remove("cover_motion_enabled")
+                    .remove("now_playing_info")
                     .remove("backlight_timer_index")
                     .remove("screen_off_control")
                     .remove("repeat_mode")
@@ -14231,6 +14357,8 @@ public class MainActivity extends Activity {
         isAlbumTiltEnabled = true;
         isCoverMotionEnabled = true;
         refreshCoverPanAnimations();
+        nowPlayingInfoMode = 3;
+        updateNowPlayingInfo();
         backlightTimerIndex = 3;
         isScreenOffControlEnabled = false;
         repeatMode = 0;

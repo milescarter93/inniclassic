@@ -188,6 +188,7 @@ public class AudioPlayerManager {
                                         if (!MainActivity.instance.currentPlaylist.isEmpty()) {
                                             MainActivity.instance.updateAudioQualityInfo(MainActivity.instance.currentPlaylist.get(MainActivity.instance.currentIndex));
                                         }
+                                        MainActivity.instance.updateNowPlayingInfo(); // bitrates that need the duration
                                     } catch (Exception e) {}
                                 }
                             });
