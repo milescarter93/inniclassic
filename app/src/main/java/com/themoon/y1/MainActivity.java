@@ -5299,15 +5299,33 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
         }
         pbBrightness.setProgress(currentSystemBrightness);
-        int percent = (int) (((float) currentSystemBrightness / 255.0f) * 100);
-        tvBrightnessVal.setText(percent + "%");
+        tvBrightnessVal.setText(brightnessPercent() + "%");
+    }
+
+    // 🚀 [Brightness] The 0-255 system value as the percentage shown on screen.
+    private int brightnessPercent() {
+        return Math.round(currentSystemBrightness * 100f / 255f);
+    }
+
+    private long lastBrightnessStepTime;
+
+    // One wheel click = one percentage point; turning quickly (clicks < 120 ms apart) moves 5 at a time,
+    // landing on round numbers. Never below 5% (a black screen with no way to see the menu).
+    private void stepBrightness(boolean up) {
+        long now = android.os.SystemClock.uptimeMillis();
+        boolean fast = now - lastBrightnessStepTime < 120;
+        lastBrightnessStepTime = now;
+        int p = brightnessPercent();
+        if (fast) p = up ? (p + 5) / 5 * 5 : (p - 1) / 5 * 5;
+        else p += up ? 1 : -1;
+        p = Math.max(5, Math.min(100, p));
+        updateBrightness(Math.round(p * 255f / 100f));
     }
 
     private void updateBrightness(int newBrightness) {
         currentSystemBrightness = newBrightness;
         pbBrightness.setProgress(currentSystemBrightness);
-        int percent = (int) (((float) currentSystemBrightness / 255.0f) * 100);
-        tvBrightnessVal.setText(percent + "%");
+        tvBrightnessVal.setText(brightnessPercent() + "%");
 
         try {
             Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE,
@@ -13020,14 +13038,12 @@ public class MainActivity extends Activity {
 
         if (currentScreenState == STATE_BRIGHTNESS) {
             if (keyCode == 21) {
-                currentSystemBrightness = Math.max(10, currentSystemBrightness - 15);
-                updateBrightness(currentSystemBrightness);
+                stepBrightness(false);
                 clickFeedback();
                 return true;
             }
             if (keyCode == 22) {
-                currentSystemBrightness = Math.min(255, currentSystemBrightness + 15);
-                updateBrightness(currentSystemBrightness);
+                stepBrightness(true);
                 clickFeedback();
                 return true;
             }
@@ -13890,6 +13906,9 @@ public class MainActivity extends Activity {
                         // 🚀 [Song menu] On a song, hold Play/Pause opens its menu (queue, playlists, search -
                         // "Jump to Letter" there opens the alphabet this gesture used to toggle directly).
                         showSongMenu(getFocusedSongInList().file);
+                    } else if (currentScreenState == STATE_MENU
+                            || (currentScreenState == STATE_SETTINGS && !isRadioUIShowing)) {
+                        showQuickSettingsDialog(); // 🚀 [Quick Settings]
                     } else if (currentScreenState == STATE_BROWSER && hzIndexScroll != null) {
                         if (currentScrollIndexList != null && !currentScrollIndexList.isEmpty()) {
                             // 💡 [핵심 수정] 이미 떠 있으면 숨기고, 안 떠 있으면 켭니다!
@@ -16318,6 +16337,16 @@ public class MainActivity extends Activity {
         });
         layout.addView(btnSleep);
 
+        // 🚀 [Quick Settings] Brightness / backlight without leaving Now Playing.
+        View btnQuick = createListButtonWithIcon("", t("Quick Settings"));
+        btnQuick.setOnKeyListener(dialogWheelListener);
+        btnQuick.setOnClickListener(v -> {
+            clickFeedback();
+            dialog.dismiss();
+            showQuickSettingsDialog();
+        });
+        layout.addView(btnQuick);
+
         // 🚀 [버그 수리] Center 롱프레스가 이제 화면 잠금 전용이 되면서, 예전에 즐겨찾기를 켜고 끄던
         // "Center 더블클릭" 경로가 죽은 코드가 되어 즐겨찾기를 켤 방법이 아예 사라졌습니다 - 이 메뉴로 복구합니다.
         boolean isFav = favoritePaths.contains(songFile.getAbsolutePath());
@@ -16732,6 +16761,112 @@ public class MainActivity extends Activity {
             action.onClick(v);
         });
         layout.addView(row);
+    }
+
+    // =======================================================
+    // 🚀 [Quick Settings] Brightness, backlight timer and sleep timer without going through Settings.
+    // Hold Play/Pause on the main menu or in Settings, or "Quick Settings" in the Now Playing menu.
+    // Brightness: Center starts adjusting, the wheel changes it, Center or Back stops.
+    // =======================================================
+    private void showQuickSettingsDialog() {
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        final View.OnKeyListener baseWheel = dialogWheelKeyListener(layout);
+        // Keys in a dialog don't reach the activity, so keep the backlight timer from running out here.
+        final View.OnKeyListener wheel = (v, keyCode, event) -> {
+            resetBacklightTimer();
+            return baseWheel.onKey(v, keyCode, event);
+        };
+
+        // Brightness
+        try {
+            currentSystemBrightness = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, 255);
+        } catch (Exception e) {
+        }
+        final View brightnessRow = createListButtonWithIcon("", "");
+        final TextView brightnessText = (TextView) ((ViewGroup) brightnessRow).getChildAt(1);
+        final boolean[] adjusting = { false };
+        final Runnable showBrightness = new Runnable() {
+            @Override
+            public void run() {
+                int percent = brightnessPercent();
+                brightnessText.setText(adjusting[0]
+                        ? t("Brightness") + ":  ◀ " + percent + "% ▶"
+                        : t("Brightness") + ": " + percent + "%");
+            }
+        };
+        showBrightness.run();
+        brightnessRow.setOnClickListener(v -> {
+            clickFeedback();
+            adjusting[0] = !adjusting[0];
+            showBrightness.run();
+        });
+        brightnessRow.setOnKeyListener(new View.OnKeyListener() {
+            @Override
+            public boolean onKey(View v, int keyCode, KeyEvent event) {
+                if (!adjusting[0]) return wheel.onKey(v, keyCode, event);
+                resetBacklightTimer();
+                if (keyCode == 21 || keyCode == 22) {
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        stepBrightness(keyCode == 22); // same steps as the Brightness screen
+                        showBrightness.run();
+                        clickFeedback();
+                    }
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_BACK) { // stop adjusting instead of closing the menu
+                    if (event.getAction() == KeyEvent.ACTION_UP) {
+                        adjusting[0] = false;
+                        showBrightness.run();
+                        clickFeedback();
+                    }
+                    return true;
+                }
+                return false;
+            }
+        });
+        layout.addView(brightnessRow);
+
+        // Backlight timer: Center steps through the same choices as Settings > Backlight Timer.
+        final View backlightRow = createListButtonWithIcon("",
+                t("Backlight Timer") + ": " + t(BACKLIGHT_TIMER_LABELS[backlightTimerIndex]));
+        backlightRow.setOnKeyListener(wheel);
+        backlightRow.setOnClickListener(v -> {
+            clickFeedback();
+            backlightTimerIndex = (backlightTimerIndex + 1) % BACKLIGHT_TIMER_LABELS.length;
+            prefs.edit().putInt("backlight_timer_index", backlightTimerIndex).commit();
+            resetBacklightTimer();
+            ((TextView) ((ViewGroup) backlightRow).getChildAt(1)).setText(
+                    t("Backlight Timer") + ": " + t(BACKLIGHT_TIMER_LABELS[backlightTimerIndex]));
+        });
+        layout.addView(backlightRow);
+
+        addQueueMenuRow(layout, wheel, t("Sleep Timer") + ": " + sleepTimerStatus(), v -> {
+            dialog.dismiss();
+            showSleepTimerDialog(null);
+        });
+        addQueueMenuRow(layout, wheel, t("Close"), v -> dialog.dismiss());
+
+        // Settings rows show these values: refresh them if the menu was opened from Settings.
+        dialog.setOnDismissListener(d -> {
+            resetBacklightTimer();
+            if (currentScreenState == STATE_SETTINGS && currentSettingsDepth == 0 && !isRadioUIShowing)
+                buildSettingsUI();
+        });
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
+            }
+        }, 50);
     }
 
     private String queueRowLabel(File file, java.util.Map<String, SongItem> byPath) {

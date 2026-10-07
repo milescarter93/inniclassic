@@ -505,5 +505,14 @@
   "Over Voltage": "Sobretensión",
   "Failure": "Fallo",
   "Unknown": "Desconocido",
-  "%1$d h %2$d min": "%1$d h %2$d min"
+  "%1$d h %2$d min": "%1$d h %2$d min",
+  "Quick Settings": "Ajustes rápidos",
+  "Close": "Cerrar",
+  "Brightness": "Brillo",
+  "10 Seconds": "10 segundos",
+  "20 Seconds": "20 segundos",
+  "30 Seconds": "30 segundos",
+  "1 Minute": "1 minuto",
+  "2 Minutes": "2 minutos",
+  "Always On": "Siempre encendida"
 }
