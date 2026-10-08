@@ -215,6 +215,7 @@ public class ThemeManager {
         // 💡 팁: 5번째 파라미터인 타겟 버튼("btn_bt")을 "" (빈칸)으로 비워두면, 모든 메뉴 버튼의 아이콘을 자동으로 띄워주는 글로벌 만능 위젯으로 작동합니다!
         defaultTheme.menuElements.add(new MenuElement("preview", "widget_focus_image", "", "", 290, 90, 140, 140, "", "", "", "", "", "", "", "", "NONE", "top|left", -1, -1, 16, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
 
+        addExtrasButton(defaultTheme);
         return defaultTheme;
     }
 
@@ -392,6 +393,7 @@ public class ThemeManager {
                             if (problem != null) {
                                 addBrokenTheme(theme.name, problem);
                             } else {
+                                addExtrasButton(theme);
                                 availableThemes.add(theme);
                             }
                         } catch (org.json.JSONException e) {
@@ -405,6 +407,31 @@ public class ThemeManager {
                 }
             }
         }
+    }
+
+    // 🚀 [Extras] iPod-style "Extras" entry (clock, alarm, stopwatch) for themes whose main menu is a list: a
+    // copy of the Settings button (same look) placed just before it. Themes with free-placed buttons (tiles)
+    // are left as designed; a theme can also have its own button with the action OPEN_EXTRAS.
+    static void addExtrasButton(ThemeData theme) {
+        MenuElement settings = null;
+        for (MenuElement el : theme.menuElements) {
+            if ("OPEN_EXTRAS".equals(el.action)) return;
+            if (settings == null && "button".equals(el.type) && "OPEN_SETTINGS".equals(el.action)) settings = el;
+        }
+        if (settings == null || settings.parentId == null || settings.parentId.isEmpty()) return;
+        boolean inList = false;
+        for (MenuElement el : theme.menuElements)
+            if (settings.parentId.equals(el.id) && "list_box".equals(el.type)) inList = true;
+        if (!inList) return;
+        MenuElement extras = new MenuElement("btn_extras", "button", settings.parentId, settings.visibleOnFocus,
+                settings.x, settings.y, settings.width, settings.height, "Extras", "Extras", settings.textRight,
+                settings.textRightColor, settings.textRightFocusedColor, "", "", settings.previewImage, "OPEN_EXTRAS",
+                settings.gravity, settings.radius, settings.focusIndex, settings.textSize, settings.textSecondarySize,
+                settings.textPosition, settings.textAlign, settings.bgColor, settings.padding, settings.focusOffsetX,
+                settings.focusOffsetY, settings.focusScale);
+        for (MenuElement el : theme.menuElements)
+            if ("button".equals(el.type) && el.focusIndex >= settings.focusIndex) el.focusIndex++;
+        theme.menuElements.add(theme.menuElements.indexOf(settings), extras);
     }
 
     // Returns null if the theme is usable, or the reason it isn't.

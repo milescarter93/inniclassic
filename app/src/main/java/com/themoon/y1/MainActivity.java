@@ -1493,6 +1493,9 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 🚀 [Extras] Started by the music alarm (the process wasn't running): ring once ready (onResume).
+        pendingAlarmRing = getIntent() != null
+                && getIntent().getBooleanExtra(com.themoon.y1.managers.AlarmScheduler.EXTRA_ALARM, false);
 
         try {
             Security.insertProviderAt(Conscrypt.newProvider(), 1);
@@ -3618,6 +3621,10 @@ public class MainActivity extends Activity {
             if (inputLocked) {
                 lockCoverPath = null; // the track may have changed while the screen was off
                 startLockScreenTicks();
+            }
+            if (extrasOverlay != null && extrasOverlay.getVisibility() == View.VISIBLE) {
+                extrasHandler.removeCallbacks(extrasTick);
+                extrasHandler.post(extrasTick);
             }
             clockHandler.removeCallbacks(clockTask);
             clockHandler.post(clockTask);
@@ -11931,6 +11938,9 @@ public class MainActivity extends Activity {
                         case "OPEN_BLUETOOTH":
                             changeScreen(STATE_BLUETOOTH);
                             break;
+                        case "OPEN_EXTRAS": // 🚀 [Extras] clock, alarm, stopwatch
+                            showExtrasMenu();
+                            break;
                         case "OPEN_SETTINGS":
                             changeScreen(STATE_SETTINGS);
                             break;
@@ -14195,6 +14205,11 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // 🚀 [Extras] The clock / stopwatch / ringing-alarm screen takes every key while it's shown.
+        if (extrasOverlay != null && extrasOverlay.getVisibility() == View.VISIBLE) {
+            handleExtrasOverlayKey(event);
+            return true;
+        }
         if (handleCenterGesture(event)) return true;
         if (inputLocked) return true;
         int keyCode = event.getKeyCode();
@@ -17849,6 +17864,461 @@ public class MainActivity extends Activity {
                 if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
             }
         }, 50);
+    }
+
+    // =======================================================
+    // 🚀 [Extras] iPod-style Extras (main menu): Clock, Alarm (wakes the Y1 with music) and Stopwatch.
+    // Clock, stopwatch and the ringing alarm use a full-screen overlay that takes every key
+    // (dispatchKeyEvent); refreshed only while the display is on.
+    // =======================================================
+    private static final int OVERLAY_CLOCK = 1, OVERLAY_STOPWATCH = 2, OVERLAY_ALARM = 3;
+    private FrameLayout extrasOverlay;
+    private TextView extrasTitle, extrasBig, extrasLine1, extrasLine2, extrasHint;
+    private int extrasMode;
+    private boolean pendingAlarmRing;
+    private final Handler extrasHandler = new Handler();
+    // Stopwatch: keeps running while its screen is closed (based on elapsedRealtime).
+    private boolean swRunning;
+    private long swStartedAt, swAccumulated;
+    private final List<Long> swLaps = new ArrayList<>();
+    private final Runnable extrasTick = new Runnable() {
+        @Override
+        public void run() {
+            if (extrasOverlay == null || extrasOverlay.getVisibility() != View.VISIBLE || isDisplayIdle()) return;
+            refreshExtrasOverlay();
+            extrasHandler.postDelayed(this, extrasMode == OVERLAY_STOPWATCH && swRunning ? 100 : 1000);
+        }
+    };
+    // Alarm volume fade-in (fade factor 0.15 -> 1 over 30 s).
+    private long alarmFadeStart;
+    private final Runnable alarmFade = new Runnable() {
+        @Override
+        public void run() {
+            float p = Math.min(1f, (android.os.SystemClock.uptimeMillis() - alarmFadeStart) / 30000f);
+            com.themoon.y1.managers.AudioPlayerManager.getInstance().setFadeFactor(0.15f + 0.85f * p);
+            if (p < 1f) extrasHandler.postDelayed(this, 500);
+        }
+    };
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent != null && intent.getBooleanExtra(com.themoon.y1.managers.AlarmScheduler.EXTRA_ALARM, false))
+            pendingAlarmRing = true; // rung in onResume, which follows
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (pendingAlarmRing) {
+            pendingAlarmRing = false;
+            // Give a cold start a moment to load the library and restore the queue.
+            extrasHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    startAlarmRinging();
+                }
+            }, customLibrary.isEmpty() ? 4000 : 300);
+        }
+    }
+
+    private String fmtClock(int hour, int minute) {
+        if (is24HourFormat) return String.format(Locale.US, "%02d:%02d", hour, minute);
+        int h = hour % 12 == 0 ? 12 : hour % 12;
+        return String.format(Locale.US, "%d:%02d %s", h, minute, hour < 12 ? "AM" : "PM");
+    }
+
+    private String longDate(java.util.Calendar c) {
+        String[] days = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+        String[] months = { "January", "February", "March", "April", "May", "June", "July", "August", "September",
+                "October", "November", "December" };
+        return String.format(Locale.US, t("%1$s, %2$s %3$d"), t(days[c.get(java.util.Calendar.DAY_OF_WEEK) - 1]),
+                t(months[c.get(java.util.Calendar.MONTH)]), c.get(java.util.Calendar.DAY_OF_MONTH));
+    }
+
+    private String alarmDaysLabel() {
+        String d = com.themoon.y1.managers.AlarmScheduler.days(this);
+        if (com.themoon.y1.managers.AlarmScheduler.DAYS_WEEKDAYS.equals(d)) return t("Weekdays");
+        if (com.themoon.y1.managers.AlarmScheduler.DAYS_WEEKENDS.equals(d)) return t("Weekends");
+        if (com.themoon.y1.managers.AlarmScheduler.DAYS_ONCE.equals(d)) return t("Once");
+        return t("Every Day");
+    }
+
+    // "Alarm 7:30 (Every Day)", or "Alarm: Off"
+    private String alarmSummary() {
+        if (!com.themoon.y1.managers.AlarmScheduler.isEnabled(this)) return t("Alarm") + ": " + t("Inactive");
+        return t("Alarm") + ": " + fmtClock(com.themoon.y1.managers.AlarmScheduler.hour(this),
+                com.themoon.y1.managers.AlarmScheduler.minute(this)) + " (" + alarmDaysLabel() + ")";
+    }
+
+    private long stopwatchMs() {
+        return swAccumulated + (swRunning ? android.os.SystemClock.elapsedRealtime() - swStartedAt : 0);
+    }
+
+    private static String fmtStopwatch(long ms) {
+        long tenths = (ms / 100) % 10, sec = (ms / 1000) % 60, min = (ms / 60000) % 60, h = ms / 3600000;
+        return h > 0 ? String.format(Locale.US, "%d:%02d:%02d.%d", h, min, sec, tenths)
+                : String.format(Locale.US, "%02d:%02d.%d", min, sec, tenths);
+    }
+
+    private void showExtrasMenu() {
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
+
+        addQueueMenuRow(layout, wheel, t("Clock"), v -> {
+            dialog.dismiss();
+            showExtrasOverlay(OVERLAY_CLOCK);
+        });
+        addQueueMenuRow(layout, wheel, alarmSummary(), v -> {
+            dialog.dismiss();
+            showAlarmSettingsDialog();
+        });
+        String sw = t("Stopwatch");
+        if (swRunning || swAccumulated > 0) sw += ": " + fmtStopwatch(stopwatchMs());
+        addQueueMenuRow(layout, wheel, sw, v -> {
+            dialog.dismiss();
+            showExtrasOverlay(OVERLAY_STOPWATCH);
+        });
+        addQueueMenuRow(layout, wheel, t("Close"), v -> dialog.dismiss());
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
+            }
+        }, 50);
+    }
+
+    // Alarm settings: rows change with Center; Hour / Minute are set with the wheel (Center starts and stops).
+    private void showAlarmSettingsDialog() {
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        final View.OnKeyListener baseWheel = dialogWheelKeyListener(layout);
+        final View.OnKeyListener wheel = (v, keyCode, event) -> {
+            resetBacklightTimer();
+            return baseWheel.onKey(v, keyCode, event);
+        };
+
+        final View enabledRow = createListButtonWithIcon("", "");
+        final View hourRow = createListButtonWithIcon("", "");
+        final View minuteRow = createListButtonWithIcon("", "");
+        final View daysRow = createListButtonWithIcon("", "");
+        final View musicRow = createListButtonWithIcon("", "");
+        final View fadeRow = createListButtonWithIcon("", "");
+        final int[] adjusting = { 0 }; // 0 none, 1 hour, 2 minute
+        final long[] lastStep = { 0 };
+        final Runnable refresh = new Runnable() {
+            @Override
+            public void run() {
+                int h = prefs.getInt("alarm_hour", 7), m = prefs.getInt("alarm_minute", 30);
+                ((TextView) ((ViewGroup) enabledRow).getChildAt(1)).setText(t("Alarm") + ": "
+                        + (com.themoon.y1.managers.AlarmScheduler.isEnabled(MainActivity.this) ? t("Active") : t("Inactive")));
+                ((TextView) ((ViewGroup) hourRow).getChildAt(1)).setText(t("Hour") + ": "
+                        + (adjusting[0] == 1 ? "◀ " + String.format(Locale.US, "%02d", h) + " ▶" : String.format(Locale.US, "%02d", h)));
+                ((TextView) ((ViewGroup) minuteRow).getChildAt(1)).setText(t("Minutes") + ": "
+                        + (adjusting[0] == 2 ? "◀ " + String.format(Locale.US, "%02d", m) + " ▶" : String.format(Locale.US, "%02d", m)));
+                ((TextView) ((ViewGroup) daysRow).getChildAt(1)).setText(t("Repeat") + ": " + alarmDaysLabel());
+                ((TextView) ((ViewGroup) musicRow).getChildAt(1)).setText(t("Music") + ": "
+                        + (com.themoon.y1.managers.AlarmScheduler.MUSIC_SHUFFLE.equals(
+                                com.themoon.y1.managers.AlarmScheduler.music(MainActivity.this))
+                                ? t("Shuffle All Songs") : t("Resume Last Music")));
+                ((TextView) ((ViewGroup) fadeRow).getChildAt(1)).setText(t("Gradual Volume") + ": "
+                        + (com.themoon.y1.managers.AlarmScheduler.fadeIn(MainActivity.this) ? t("Active") : t("Inactive")));
+            }
+        };
+        refresh.run();
+
+        enabledRow.setOnKeyListener(wheel);
+        enabledRow.setOnClickListener(v -> {
+            clickFeedback();
+            prefs.edit().putBoolean("alarm_enabled", !com.themoon.y1.managers.AlarmScheduler.isEnabled(this)).commit();
+            refresh.run();
+        });
+        View.OnKeyListener adjustKeys = new View.OnKeyListener() {
+            @Override
+            public boolean onKey(View v, int keyCode, KeyEvent event) {
+                int which = v == hourRow ? 1 : 2;
+                if (adjusting[0] != which) return wheel.onKey(v, keyCode, event);
+                resetBacklightTimer();
+                if (keyCode == 21 || keyCode == 22) {
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        long now = android.os.SystemClock.uptimeMillis();
+                        int step = (which == 2 && now - lastStep[0] < 120) ? 5 : 1; // fast spin: 5 minutes
+                        lastStep[0] = now;
+                        int dir = keyCode == 22 ? 1 : -1;
+                        if (which == 1) {
+                            prefs.edit().putInt("alarm_hour", (prefs.getInt("alarm_hour", 7) + dir + 24) % 24).commit();
+                        } else {
+                            int m = prefs.getInt("alarm_minute", 30) + dir * step;
+                            if (step == 5) m = dir > 0 ? m / 5 * 5 : (m + 4) / 5 * 5;
+                            prefs.edit().putInt("alarm_minute", ((m % 60) + 60) % 60).commit();
+                        }
+                        clickFeedback();
+                        refresh.run();
+                    }
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_BACK) {
+                    if (event.getAction() == KeyEvent.ACTION_UP) {
+                        adjusting[0] = 0;
+                        refresh.run();
+                    }
+                    return true;
+                }
+                return false;
+            }
+        };
+        hourRow.setOnKeyListener(adjustKeys);
+        minuteRow.setOnKeyListener(adjustKeys);
+        hourRow.setOnClickListener(v -> {
+            clickFeedback();
+            adjusting[0] = adjusting[0] == 1 ? 0 : 1;
+            refresh.run();
+        });
+        minuteRow.setOnClickListener(v -> {
+            clickFeedback();
+            adjusting[0] = adjusting[0] == 2 ? 0 : 2;
+            refresh.run();
+        });
+        daysRow.setOnKeyListener(wheel);
+        daysRow.setOnClickListener(v -> {
+            clickFeedback();
+            String[] order = { com.themoon.y1.managers.AlarmScheduler.DAYS_EVERY,
+                    com.themoon.y1.managers.AlarmScheduler.DAYS_WEEKDAYS,
+                    com.themoon.y1.managers.AlarmScheduler.DAYS_WEEKENDS, com.themoon.y1.managers.AlarmScheduler.DAYS_ONCE };
+            String cur = com.themoon.y1.managers.AlarmScheduler.days(this);
+            int i = 0;
+            while (i < order.length && !order[i].equals(cur)) i++;
+            prefs.edit().putString("alarm_days", order[(i + 1) % order.length]).commit();
+            refresh.run();
+        });
+        musicRow.setOnKeyListener(wheel);
+        musicRow.setOnClickListener(v -> {
+            clickFeedback();
+            boolean shuffle = com.themoon.y1.managers.AlarmScheduler.MUSIC_SHUFFLE.equals(
+                    com.themoon.y1.managers.AlarmScheduler.music(this));
+            prefs.edit().putString("alarm_music", shuffle ? com.themoon.y1.managers.AlarmScheduler.MUSIC_RESUME
+                    : com.themoon.y1.managers.AlarmScheduler.MUSIC_SHUFFLE).commit();
+            refresh.run();
+        });
+        fadeRow.setOnKeyListener(wheel);
+        fadeRow.setOnClickListener(v -> {
+            clickFeedback();
+            prefs.edit().putBoolean("alarm_fade_in", !com.themoon.y1.managers.AlarmScheduler.fadeIn(this)).commit();
+            refresh.run();
+        });
+        for (View row : new View[] { enabledRow, hourRow, minuteRow, daysRow, musicRow, fadeRow }) layout.addView(row);
+        addQueueMenuRow(layout, wheel, t("Test Alarm"), v -> {
+            dialog.dismiss();
+            startAlarmRinging();
+        });
+        addQueueMenuRow(layout, wheel, t("Close"), v -> dialog.dismiss());
+
+        dialog.setOnDismissListener(d -> {
+            com.themoon.y1.managers.AlarmScheduler.schedule(this);
+            long next = com.themoon.y1.managers.AlarmScheduler.nextTrigger(this);
+            if (next > 0) {
+                long mins = Math.max(1, (next - System.currentTimeMillis() + 59999) / 60000);
+                Toast.makeText(this, String.format(Locale.US, t("The alarm will go off in %1$d h %2$d min."),
+                        mins / 60, mins % 60), Toast.LENGTH_LONG).show();
+            }
+        });
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
+            }
+        }, 50);
+    }
+
+    private void buildExtrasOverlay() {
+        float d = getResources().getDisplayMetrics().density;
+        extrasOverlay = new FrameLayout(this);
+        extrasOverlay.setBackgroundColor(Color.BLACK);
+        extrasOverlay.setClickable(true);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER);
+        col.setPadding((int) (16 * d), (int) (12 * d), (int) (16 * d), (int) (10 * d));
+        extrasOverlay.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        extrasTitle = lockText(16, 0xFF9A9A9F, true);
+        extrasBig = lockText(64, Color.WHITE, true);
+        extrasLine1 = lockText(17, 0xFFD0D0D5, false);
+        extrasLine2 = lockText(15, 0xFF9A9A9F, false);
+        extrasHint = lockText(13, 0xFF9A9A9F, false);
+        for (TextView tv : new TextView[] { extrasTitle, extrasBig, extrasLine1, extrasLine2, extrasHint }) {
+            tv.setGravity(Gravity.CENTER);
+            col.addView(tv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        ((LinearLayout.LayoutParams) extrasLine1.getLayoutParams()).topMargin = (int) (4 * d);
+        ((LinearLayout.LayoutParams) extrasLine2.getLayoutParams()).topMargin = (int) (6 * d);
+        ((LinearLayout.LayoutParams) extrasHint.getLayoutParams()).topMargin = (int) (18 * d);
+        ((ViewGroup) findViewById(android.R.id.content)).addView(extrasOverlay,
+                new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        extrasOverlay.setVisibility(View.GONE);
+    }
+
+    private void showExtrasOverlay(int mode) {
+        if (extrasOverlay == null) buildExtrasOverlay();
+        extrasMode = mode;
+        extrasOverlay.setVisibility(View.VISIBLE);
+        extrasOverlay.bringToFront();
+        resetBacklightTimer();
+        refreshExtrasOverlay();
+        extrasHandler.removeCallbacks(extrasTick);
+        extrasHandler.post(extrasTick);
+    }
+
+    private void hideExtrasOverlay() {
+        extrasHandler.removeCallbacks(extrasTick);
+        if (extrasOverlay != null) extrasOverlay.setVisibility(View.GONE);
+        extrasMode = 0;
+    }
+
+    private void refreshExtrasOverlay() {
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        String clock = fmtClock(now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE));
+        if (extrasMode == OVERLAY_CLOCK) {
+            extrasTitle.setText(t("Clock"));
+            extrasBig.setText(clock);
+            extrasLine1.setText(longDate(now));
+            long next = com.themoon.y1.managers.AlarmScheduler.nextTrigger(this);
+            String line2 = batteryLevelPct >= 0 ? t("Battery") + " " + batteryLevelPct + "%" : "";
+            if (next > 0) {
+                java.util.Calendar n = java.util.Calendar.getInstance();
+                n.setTimeInMillis(next);
+                line2 = "⏰ " + fmtClock(n.get(java.util.Calendar.HOUR_OF_DAY), n.get(java.util.Calendar.MINUTE))
+                        + (line2.isEmpty() ? "" : "   ·   " + line2);
+            }
+            extrasLine2.setText(line2);
+            extrasHint.setText(t("Back or Center to close"));
+        } else if (extrasMode == OVERLAY_STOPWATCH) {
+            extrasTitle.setText(t("Stopwatch"));
+            extrasBig.setText(fmtStopwatch(stopwatchMs()));
+            StringBuilder laps = new StringBuilder();
+            for (int i = swLaps.size() - 1; i >= 0 && i >= swLaps.size() - 3; i--) {
+                if (laps.length() > 0) laps.append("\n");
+                laps.append(String.format(Locale.US, t("Lap %d"), i + 1)).append("   ").append(fmtStopwatch(swLaps.get(i)));
+            }
+            extrasLine1.setText(laps.toString());
+            extrasLine2.setText("");
+            extrasHint.setText(swRunning ? t("Center: pause   ·   ⏭: lap   ·   Back: close")
+                    : t("Center: start   ·   ⏮: reset   ·   Back: close"));
+        } else if (extrasMode == OVERLAY_ALARM) {
+            extrasTitle.setText("⏰ " + t("Alarm"));
+            extrasBig.setText(clock);
+            extrasLine1.setText(longDate(now));
+            extrasLine2.setText(String.format(Locale.US, t("⏯: snooze %d min"), com.themoon.y1.managers.AlarmScheduler.SNOOZE_MINUTES));
+            extrasHint.setText(t("Center: stop the music   ·   Back: keep listening"));
+        }
+    }
+
+    private void handleExtrasOverlayKey(KeyEvent event) {
+        int key = event.getKeyCode();
+        boolean up = event.getAction() == KeyEvent.ACTION_UP;
+        resetBacklightTimer();
+        if (!up || event.isCanceled()) return; // act on release
+        boolean center = key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER;
+        boolean back = key == KeyEvent.KEYCODE_BACK;
+        boolean playPause = key == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || key == 85;
+        boolean next = key == KeyEvent.KEYCODE_MEDIA_NEXT || key == 87;
+        boolean prev = key == KeyEvent.KEYCODE_MEDIA_PREVIOUS || key == 88;
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        if (extrasMode == OVERLAY_CLOCK) {
+            if (center || back) {
+                clickFeedback();
+                hideExtrasOverlay();
+            }
+        } else if (extrasMode == OVERLAY_STOPWATCH) {
+            if (center) {
+                if (swRunning) {
+                    swAccumulated = stopwatchMs();
+                    swRunning = false;
+                } else {
+                    swStartedAt = android.os.SystemClock.elapsedRealtime();
+                    swRunning = true;
+                }
+                clickFeedback();
+                extrasHandler.removeCallbacks(extrasTick);
+                extrasHandler.post(extrasTick);
+            } else if (next && swRunning) {
+                swLaps.add(stopwatchMs());
+                clickFeedback();
+                refreshExtrasOverlay();
+            } else if (prev && !swRunning) {
+                swAccumulated = 0;
+                swLaps.clear();
+                clickFeedback();
+                refreshExtrasOverlay();
+            } else if (back) {
+                clickFeedback();
+                hideExtrasOverlay(); // keeps running
+            }
+        } else if (extrasMode == OVERLAY_ALARM) {
+            if (center || playPause || back) {
+                extrasHandler.removeCallbacks(alarmFade);
+                am.setFadeFactor(1f);
+                if ((center || playPause) && am.isPlaying()) am.playOrPauseMusic();
+                if (playPause) {
+                    com.themoon.y1.managers.AlarmScheduler.snooze(this);
+                    Toast.makeText(this, String.format(Locale.US, t("Snoozed for %d minutes."),
+                            com.themoon.y1.managers.AlarmScheduler.SNOOZE_MINUTES), Toast.LENGTH_LONG).show();
+                }
+                android.util.Log.i("Y1Alarm", center ? "Stopped" : playPause ? "Snoozed" : "Dismissed, music keeps playing");
+                clickFeedback();
+                hideExtrasOverlay();
+            }
+        }
+    }
+
+    // The alarm went off (or "Test Alarm"): wake the screen, start the music (fading in) and show the alarm screen.
+    private void startAlarmRinging() {
+        android.util.Log.i("Y1Alarm", "Ringing: music " + com.themoon.y1.managers.AlarmScheduler.music(this));
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            PowerManager.WakeLock wake = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+                    | PowerManager.ACQUIRE_CAUSES_WAKEUP, "InniClassic:alarmScreen");
+            wake.acquire(15000);
+        } catch (Exception ignored) {
+        }
+        if (isFakeScreenOff) wakeFromFakeScreenOff();
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        boolean fade = com.themoon.y1.managers.AlarmScheduler.fadeIn(this);
+        am.setFadeFactor(fade ? 0.15f : 1f);
+        boolean resume = com.themoon.y1.managers.AlarmScheduler.MUSIC_RESUME.equals(
+                com.themoon.y1.managers.AlarmScheduler.music(this));
+        if (resume && am.hasActivePlayer() && !currentPlaylist.isEmpty()) {
+            if (!am.isPlaying()) am.playOrPauseMusic();
+        } else if (!customLibrary.isEmpty()) {
+            List<File> all = new ArrayList<>();
+            for (SongItem s : customLibrary) all.add(s.file);
+            File first = all.get(new java.util.Random().nextInt(all.size()));
+            List<File> shuffled = com.themoon.y1.managers.ShuffleHelper.shuffle(all, first,
+                    com.themoon.y1.managers.ShuffleHelper.BY_SONGS);
+            am.playTrackList(shuffled, 0);
+        }
+        if (fade) {
+            alarmFadeStart = android.os.SystemClock.uptimeMillis();
+            extrasHandler.removeCallbacks(alarmFade);
+            extrasHandler.post(alarmFade);
+        }
+        showExtrasOverlay(OVERLAY_ALARM);
     }
 
     private String queueRowLabel(File file, java.util.Map<String, SongItem> byPath) {

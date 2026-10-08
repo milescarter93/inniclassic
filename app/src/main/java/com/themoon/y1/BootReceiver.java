@@ -9,6 +9,8 @@ public class BootReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         // 💡 기기 전원이 완전히 켜졌다는 신호를 받으면, 강제로 우리 앱을 최상단으로 실행시킵니다!
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            // 🚀 [Extras] Android forgets alarms on reboot: set the music alarm again.
+            com.themoon.y1.managers.AlarmScheduler.schedule(context);
             Intent i = new Intent(context, MainActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(i);
