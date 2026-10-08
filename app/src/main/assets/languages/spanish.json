@@ -594,5 +594,6 @@
   "Center: stop the music   ·   Back: keep listening": "Centro: parar la música   ·   Atrás: seguir escuchando",
   "Snoozed for %d minutes.": "Pospuesta %d minutos.",
   "Active": "Activada",
-  "Inactive": "Desactivada"
+  "Inactive": "Desactivada",
+  "Reconnect to Last Device": "Reconectar al último dispositivo"
 }

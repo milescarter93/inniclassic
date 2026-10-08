@@ -1108,8 +1108,10 @@ public class MainActivity extends Activity {
                             new BluetoothProfile.ServiceListener() {
                                 @Override
                                 public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                                    if (profile == BluetoothProfile.A2DP)
+                                    if (profile == BluetoothProfile.A2DP) {
                                         globalA2dp = proxy;
+                                        autoConnectLastBtDevice(); // 🚀 [Bluetooth] Bluetooth just turned on
+                                    }
                                 }
 
                                 @Override
@@ -1181,17 +1183,30 @@ public class MainActivity extends Activity {
                 BluetoothDevice currentDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
 
                 if (profileState == BluetoothProfile.STATE_DISCONNECTED) {
-                    Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
+                    // 🚀 [Bluetooth] Only a real disconnection is announced (a failed reconnection attempt also
+                    // ends here).
+                    if (btAudioConnected) Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
+                    btAudioConnected = false;
                     // 🚀 [최종 방어막] 블루투스 자체가 꺼져서 끊긴 거라면(isEnabled == false) 절대 재연결 시도를 하지 않습니다!
                     BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
                     if (ba != null && ba.isEnabled() && targetDeviceForAudio != null && currentDevice != null
                             && targetDeviceForAudio.getAddress().equals(currentDevice.getAddress())) {
-                        connectBluetoothAudio(targetDeviceForAudio);
+                        scheduleBtReconnect();
                     }
                 } else if (profileState == BluetoothProfile.STATE_CONNECTED) {
                     if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return;
                     String name = currentDevice != null ? currentDevice.getName() : "Unknown";
                     Toast.makeText(context, t("Audio Connected to ") + name, Toast.LENGTH_SHORT).show();
+                    // 🚀 [Bluetooth] Remember it for the automatic reconnection; stop retrying.
+                    btAudioConnected = true;
+                    btReconnectAttempts = 0;
+                    btHandler.removeCallbacks(btReconnectRunnable);
+                    if (currentDevice != null) {
+                        prefs.edit().putString("bt_last_device", currentDevice.getAddress()).commit();
+                        android.util.Log.i("Y1Bluetooth", "Connected to " + name + ", remembered as last device");
+                    }
+                    lastBtMetaKey = null; // send the song to the new device
+                    sendBluetoothMetaToCar();
                 }
 
                 if (profileState == BluetoothProfile.STATE_CONNECTED
@@ -1243,7 +1258,7 @@ public class MainActivity extends Activity {
                     // 페어링 도중에 튕긴 거라면 재연결을 시도하지 않고 타겟을 깔끔하게 포기합니다.
                     if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return;
                     if (disconnectedDevice.getBondState() == BluetoothDevice.BOND_BONDED) {
-                        connectBluetoothAudio(targetDeviceForAudio);
+                        scheduleBtReconnect(); // 🚀 [Bluetooth] a few spaced attempts, not an endless loop
                     } else {
                         targetDeviceForAudio = null; // 찌꺼기 타겟 삭제
                     }
@@ -1437,10 +1452,22 @@ public class MainActivity extends Activity {
     // 🚀 곡이 바뀔 때 호출!
     public void updateBluetoothMetadata(String title, String artist, String album,
             Bitmap albumArtBmp) {
+        updateBluetoothMetadata(title, artist, album, null, 0, 0, albumArtBmp);
+    }
+
+    public void updateBluetoothMetadata(String title, String artist, String album, String albumArtist,
+            long durationMs, int trackNumber, Bitmap albumArtBmp) {
         if (remoteControlClient == null)
             return;
 
         android.media.RemoteControlClient.MetadataEditor editor = remoteControlClient.editMetadata(true);
+        // 🚀 [Bluetooth] Also the album artist, length and track number (car displays show them).
+        if (albumArtist != null && !albumArtist.isEmpty())
+            editor.putString(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST, albumArtist);
+        if (durationMs > 0)
+            editor.putLong(MediaMetadataRetriever.METADATA_KEY_DURATION, durationMs);
+        if (trackNumber > 0)
+            editor.putLong(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER, trackNumber);
 
         // 1. 텍스트 정보 입력 (젤리빈은 MediaMetadataRetriever의 상수를 가져다 씁니다)
         editor.putString(MediaMetadataRetriever.METADATA_KEY_TITLE,
@@ -1473,8 +1500,27 @@ public class MainActivity extends Activity {
 
     // 🚀 [신규 도우미] 현재 화면의 곡 정보와 이미지를 읽어서 블루투스로 쏘는 함수
     private void sendBluetoothMetaToCar() {
+        if (remoteControlClient == null || currentIndex < 0 || currentIndex >= currentPlaylist.size())
+            return;
         String title = tvPlayerTitle != null ? tvPlayerTitle.getText().toString() : "Unknown";
         String artist = tvPlayerArtist != null ? tvPlayerArtist.getText().toString() : "Unknown";
+        String album = tvPlayerAlbum != null ? tvPlayerAlbum.getText().toString() : "";
+        File file = currentPlaylist.get(currentIndex);
+        long duration = com.themoon.y1.managers.AudioPlayerManager.getInstance().getDuration();
+        // 🚀 [Bluetooth] This ran on every screen refresh (pause, queue edits...), decoding the cover each
+        // time: send only when the song, its tags or its length (known once loaded) change.
+        String key = file.getAbsolutePath() + '|' + title + '|' + artist + '|' + album + '|' + (duration / 1000);
+        if (key.equals(lastBtMetaKey))
+            return;
+        lastBtMetaKey = key;
+        String albumArtist = null;
+        for (SongItem s : customLibrary) {
+            if (s.file.equals(file)) {
+                albumArtist = s.albumArtist;
+                break;
+            }
+        }
+        Integer track = trackNumberMap.get(file.getAbsolutePath());
         Bitmap bmp = null;
 
         // 앨범 아트가 있으면 블루투스 전송 용량에 맞게 살짝 압축해서 보냅니다.
@@ -1488,7 +1534,79 @@ public class MainActivity extends Activity {
             }
         }
 
-        updateBluetoothMetadata(title, artist, "Y1 Player", bmp);
+        updateBluetoothMetadata(title, artist, album.isEmpty() ? "Y1" : album, albumArtist, duration,
+                track != null ? track : 0, bmp);
+    }
+
+    // =======================================================
+    // 🚀 [Bluetooth] The last audio device is remembered (bt_last_device) and connected again when Bluetooth
+    // turns on or InniClassic starts (Bluetooth screen > "Reconnect to Last Device"). When the device drops,
+    // up to 3 spaced attempts (3 s, 10 s, 30 s) instead of reconnecting at once, forever - a speaker that
+    // was switched off kept the Y1 busy retrying.
+    // =======================================================
+    private static final int[] BT_RETRY_DELAYS_MS = { 3000, 10000, 30000 };
+    private final Handler btHandler = new Handler();
+    private int btReconnectAttempts;
+    private boolean btAudioConnected;
+    private String lastBtMetaKey;
+    private final Runnable btReconnectRunnable = new Runnable() {
+        @Override
+        public void run() {
+            BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
+            if (ba == null || !ba.isEnabled() || targetDeviceForAudio == null || btAudioConnected) return;
+            android.util.Log.i("Y1Bluetooth", "Reconnecting, attempt " + btReconnectAttempts);
+            connectBluetoothAudio(targetDeviceForAudio);
+        }
+    };
+
+    private void scheduleBtReconnect() {
+        btHandler.removeCallbacks(btReconnectRunnable);
+        if (btReconnectAttempts >= BT_RETRY_DELAYS_MS.length) {
+            android.util.Log.i("Y1Bluetooth", "Giving up reconnecting");
+            targetDeviceForAudio = null;
+            btReconnectAttempts = 0;
+            return;
+        }
+        btHandler.postDelayed(btReconnectRunnable, BT_RETRY_DELAYS_MS[btReconnectAttempts++]);
+    }
+
+    private boolean isBtAutoReconnectOn() {
+        return prefs.getBoolean("bt_auto_reconnect", true);
+    }
+
+    // Called from the A2DP proxy callback, which can run inside onCreate before the settings are loaded:
+    // try a moment later.
+    private void autoConnectLastBtDevice() {
+        btHandler.removeCallbacks(btAutoConnectRunnable);
+        btHandler.postDelayed(btAutoConnectRunnable, 1500);
+    }
+
+    private final Runnable btAutoConnectRunnable = new Runnable() {
+        @Override
+        public void run() {
+            doAutoConnectLastBtDevice();
+        }
+    };
+
+    private void doAutoConnectLastBtDevice() {
+        if (prefs == null) return;
+        try {
+            String address = prefs.getString("bt_last_device", null);
+            BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
+            if (address == null || !isBtAutoReconnectOn() || ba == null || !ba.isEnabled() || globalA2dp == null)
+                return;
+            if (!globalA2dp.getConnectedDevices().isEmpty()) {
+                btAudioConnected = true;
+                return; // something is already connected
+            }
+            BluetoothDevice device = ba.getRemoteDevice(address);
+            if (device.getBondState() != BluetoothDevice.BOND_BONDED) return;
+            android.util.Log.i("Y1Bluetooth", "Connecting to the last device " + device.getName());
+            btReconnectAttempts = 0;
+            connectBluetoothAudio(device);
+        } catch (Exception e) {
+            android.util.Log.w("Y1Bluetooth", "Auto-connect failed", e);
+        }
     }
 
     @Override
@@ -1551,6 +1669,7 @@ public class MainActivity extends Activity {
                     public void onServiceConnected(int profile, BluetoothProfile proxy) {
                         if (profile == BluetoothProfile.A2DP) {
                             globalA2dp = proxy; // 장전 완료!
+                            autoConnectLastBtDevice(); // 🚀 [Bluetooth] app start with Bluetooth on
                         }
                     }
 
@@ -5877,6 +5996,21 @@ public class MainActivity extends Activity {
         });
         containerBtItems.addView(btnToggle);
 
+        // 🚀 [Bluetooth] Reconnect to the last audio device when Bluetooth turns on / at start.
+        final LinearLayout btnAutoReconnect = createSettingRow(t("Reconnect to Last Device"),
+                isBtAutoReconnectOn() ? t("ON") : t("OFF"));
+        btnAutoReconnect.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                boolean on = !isBtAutoReconnectOn();
+                prefs.edit().putBoolean("bt_auto_reconnect", on).commit();
+                ((TextView) btnAutoReconnect.getChildAt(1)).setText(on ? t("ON") : t("OFF"));
+                if (on) autoConnectLastBtDevice();
+            }
+        });
+        containerBtItems.addView(btnAutoReconnect);
+
         if (!isOn) {
             btnScanBt.setText(t("Bluetooth is OFF"));
             if (btnScanBt.getParent() != null)
@@ -5983,6 +6117,7 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 clickFeedback();
+                btReconnectAttempts = 0;
                 connectBluetoothAudio(device); // 🚀 중앙 엔진 호출!
             }
         });
