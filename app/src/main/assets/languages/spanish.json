@@ -544,5 +544,11 @@
   "On-The-Go cleared.": "On-The-Go vaciada.",
   "Rename": "Renombrar",
   "Delete \"%s\"? The songs stay on the card.": "¿Borrar «%s»? Las canciones se quedan en la tarjeta.",
-  "Couldn't delete the playlist.": "No se pudo borrar la lista."
+  "Couldn't delete the playlist.": "No se pudo borrar la lista.",
+  "Repair Playlist (%d missing)": "Reparar lista (%d sin encontrar)",
+  "%1$d songs found again, %2$d still missing.": "Se han vuelto a encontrar %1$d canciones; faltan %2$d.",
+  "Relative Paths (for PC)": "Rutas relativas (para PC)",
+  "The playlist now also works when the card is opened on a computer.": "La lista ahora también funciona al abrir la tarjeta en un ordenador.",
+  "Import Playlists from Card (%d)": "Importar listas de la tarjeta (%d)",
+  "Imported %d playlists. The originals were left where they were.": "Se han importado %d listas. Los originales siguen donde estaban."
 }

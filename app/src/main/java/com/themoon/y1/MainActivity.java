@@ -16341,14 +16341,9 @@ public class MainActivity extends Activity {
                 if (line.isEmpty() || line.startsWith("#"))
                     continue;
 
-                // 윈도우 스타일 역슬래시(\)가 섞여있다면 리눅스/안드로이드용 슬래시(/)로 자동 치환 보정!
-                line = line.replace("\\", "/");
-
-                File audioFile = new File(line);
-                // 만약 PC용 상대 경로 파일 형태라면 기본 음악 폴더(Music) 기준으로 강제 맵핑 보정!
-                if (!audioFile.isAbsolute()) {
-                    audioFile = new File(rootFolder, line);
-                }
+                // 🚀 [M3U] Windows paths ("E:\Music\x.mp3"), file:// URLs, and paths relative to the playlist's
+                // folder (the M3U standard; relative paths used to be read from Music only).
+                File audioFile = com.themoon.y1.managers.M3uPlaylist.resolve(line, m3uFile.getParentFile(), rootFolder);
 
                 // 해당 경로에 진짜 음원이 살아숨쉬고 있는지 물리적 최종 검증
                 if (audioFile.exists() && isAudioFile(audioFile)) {
@@ -17272,6 +17267,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Finds a playlist's missing song in the library: same file name (case ignored), or "Artist - Title"
+    // from its #EXTINF line.
+    private com.themoon.y1.managers.M3uPlaylist.SongFinder librarySongFinder() {
+        final java.util.HashMap<String, File> byName = new java.util.HashMap<>();
+        final java.util.HashMap<String, File> byArtistTitle = new java.util.HashMap<>();
+        for (SongItem s : customLibrary) {
+            String name = s.file.getName().toLowerCase(Locale.ROOT);
+            if (!byName.containsKey(name)) byName.put(name, s.file);
+            byArtistTitle.put(searchFold(s.artist + " - " + s.title), s.file);
+        }
+        return (fileName, extinf) -> {
+            File f = fileName != null ? byName.get(fileName.toLowerCase(Locale.ROOT)) : null;
+            if (f == null && extinf != null) f = byArtistTitle.get(searchFold(extinf));
+            return f;
+        };
+    }
+
     private com.themoon.y1.managers.M3uPlaylist loadPlaylist(File f) throws Exception {
         return com.themoon.y1.managers.M3uPlaylist.load(f, rootFolder, this::isAudioFile);
     }
@@ -17425,7 +17437,42 @@ public class MainActivity extends Activity {
                     }
                 });
             });
-        } else if (m3u != null) {
+        }
+        if (m3u != null) {
+            // 🚀 [M3U] Broken entries (song renamed/moved, PC paths) found again in the library.
+            int missing = 0;
+            try {
+                missing = loadPlaylist(m3u).missingCount();
+            } catch (Exception ignored) {
+            }
+            if (missing > 0) {
+                addQueueMenuRow(layout, wheel, String.format(t("Repair Playlist (%d missing)"), missing), v -> {
+                    dialog.dismiss();
+                    try {
+                        com.themoon.y1.managers.M3uPlaylist pl = loadPlaylist(m3u);
+                        int[] r = pl.repair(librarySongFinder());
+                        if (r[0] > 0) pl.save();
+                        Toast.makeText(this, String.format(t("%1$d songs found again, %2$d still missing."), r[0], r[1]),
+                                Toast.LENGTH_LONG).show();
+                    } catch (Exception e) {
+                        Toast.makeText(this, t("Couldn't save the playlist."), Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+            addQueueMenuRow(layout, wheel, t("Relative Paths (for PC)"), v -> {
+                dialog.dismiss();
+                try {
+                    com.themoon.y1.managers.M3uPlaylist pl = loadPlaylist(m3u);
+                    int changed = pl.makeRelative();
+                    if (changed > 0) pl.save();
+                    Toast.makeText(this, t("The playlist now also works when the card is opened on a computer."),
+                            Toast.LENGTH_LONG).show();
+                } catch (Exception e) {
+                    Toast.makeText(this, t("Couldn't save the playlist."), Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+        if (m3u != null && !isOnTheGo) {
             addQueueMenuRow(layout, wheel, t("Rename"), v -> {
                 dialog.dismiss();
                 askPlaylistName(6, null, m3u);
@@ -17458,6 +17505,26 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             askPlaylistName(5, null, null);
         });
+        // 🚀 [M3U] Playlists copied from a computer to the card's top folder, Music or Playlists.
+        final List<File> importable = com.themoon.y1.managers.M3uPlaylist.findImportable();
+        if (!importable.isEmpty()) {
+            addQueueMenuRow(layout, wheel, String.format(t("Import Playlists from Card (%d)"), importable.size()), v -> {
+                dialog.dismiss();
+                int ok = 0;
+                com.themoon.y1.managers.M3uPlaylist.SongFinder finder = librarySongFinder();
+                for (File f : importable) {
+                    try {
+                        if (com.themoon.y1.managers.M3uPlaylist.importFrom(f, rootFolder, this::isAudioFile, finder) != null)
+                            ok++;
+                    } catch (Exception e) {
+                        android.util.Log.w("Y1Playlist", "Couldn't import " + f, e);
+                    }
+                }
+                Toast.makeText(this, String.format(t("Imported %d playlists. The originals were left where they were."), ok),
+                        Toast.LENGTH_LONG).show();
+                buildM3uPlaylistUI();
+            });
+        }
         addQueueMenuRow(layout, wheel, t("Cancel"), v -> dialog.dismiss());
 
         dialog.show();
