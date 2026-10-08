@@ -18,6 +18,25 @@ public class SongItem {
     // 🚀 [iPod 스타일] Composers 메뉴 그룹핑용 (COMPOSER/TCOM 태그, 없으면 "Unknown Composer")
     public String composer;
 
+    // 🚀 [Album grouping] album/albumArtist may be adjusted for browsing (same-named albums by different
+    // artists told apart, "Band, Guest" folded into "Band", compilations under Various Artists - see
+    // MainActivity.normalizeAlbumGrouping). These keep the tag values, which are what the cache stores.
+    public String albumTag, albumArtistTag;
+    // Other library artists credited on this track ("Kygo, Ava Max" -> Ava Max), or null.
+    public String[] artistCredits;
+
+    // Back to the tag values before grouping again (remembers them the first time).
+    public void restoreTags() {
+        if (albumTag == null) {
+            albumTag = album;
+            albumArtistTag = albumArtist;
+        } else {
+            album = albumTag;
+            albumArtist = albumArtistTag;
+        }
+        artistCredits = null;
+    }
+
     // 🚀 [크래시 버그 수정] artist/album은 그동안 null 방어가 전혀 없었습니다 - 태그 추출이 실패해서
     // null이 들어오면, 나중에 song.artist.equals(...)나 song.album.equals(...)를 부르는 모든 곳
     // (아티스트/앨범 분류, 검색 등)에서 NullPointerException으로 런처가 죽었습니다. year/genre/

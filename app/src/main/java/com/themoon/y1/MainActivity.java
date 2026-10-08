@@ -3065,10 +3065,131 @@ public class MainActivity extends Activity {
 
     // Shows the full tagged list minus duplicates (only the best-quality copy of each song stays visible).
     private void refreshVisibleLibrary(List<SongItem> all, List<SongItem> visible) {
-        List<SongItem> deduped = new ArrayList<>(all);
-        filterDuplicateSongs(deduped);
+        List<SongItem> deduped = prepareVisibleLibrary(all, visible == customLibrary);
         visible.clear();
         visible.addAll(deduped);
+    }
+
+    // The songs to show: duplicates hidden, then (music) albums and artists grouped for browsing.
+    private List<SongItem> prepareVisibleLibrary(List<SongItem> all, boolean music) {
+        for (SongItem s : all) s.restoreTags(); // duplicates are judged on the tags
+        List<SongItem> visible = new ArrayList<>(all);
+        filterDuplicateSongs(visible);
+        if (music) normalizeAlbumGrouping(visible);
+        return visible;
+    }
+
+    // =======================================================
+    // 🚀 [Album grouping] Albums were told apart by name only, and album artists taken as tagged:
+    // - Same-named albums by different artists were one album ("Unleashed": Skillet's and Kayzo's 27
+    //   tracks interleaved 1, 1, 2, 2...). They're now "Unleashed (Kayzo)" and "Unleashed (Skillet)".
+    // - A track whose album artist is "Band, Guest" ("We Came As Romans, Eric Vanlerberghe" on Cold Like
+    //   War) made a separate album artist with one song: it's folded into the album's main artist.
+    // - A real compilation (3+ artists, one year, no clashing track numbers) goes under Various Artists.
+    // - Artists: a track by "Kygo, Ava Max" is also listed under Ava Max when Ava Max is in the library.
+    // The tag values stay in SongItem.albumTag/albumArtistTag (and in the cache).
+    // =======================================================
+    private static final java.util.regex.Pattern CREDIT_SPLIT = java.util.regex.Pattern.compile(
+            "\\s*(?:,|&|\\+|\\s(?:feat\\.?|ft\\.?|featuring|with|x|y|and)\\s)\\s*",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern CREDIT_LEAD = java.util.regex.Pattern.compile(
+            "\\s*(?:,|&|\\+|(?:feat\\.?|ft\\.?|featuring|with|x|y|and)\\s)",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private void normalizeAlbumGrouping(List<SongItem> songs) {
+        long started = System.currentTimeMillis();
+        int folded = 0, splitAlbums = 0, compilations = 0, credited = 0;
+        String various = t("Various Artists");
+
+        java.util.LinkedHashMap<String, List<SongItem>> byAlbum = new java.util.LinkedHashMap<>();
+        for (SongItem s : songs) {
+            List<SongItem> g = byAlbum.get(s.album);
+            if (g == null) byAlbum.put(s.album, g = new ArrayList<>());
+            g.add(s);
+        }
+        for (java.util.Map.Entry<String, List<SongItem>> e : byAlbum.entrySet()) {
+            String name = e.getKey();
+            List<SongItem> group = e.getValue();
+            if (group.size() < 2 || "Unknown Album".equals(name)) continue; // loose tracks aren't one album
+
+            // The album's main artist: the album artist most of its tracks have.
+            java.util.HashMap<String, Integer> counts = new java.util.HashMap<>();
+            String main = null;
+            for (SongItem s : group) {
+                Integer c = counts.get(s.albumArtist);
+                counts.put(s.albumArtist, c = c == null ? 1 : c + 1);
+                if (main == null || c > counts.get(main)) main = s.albumArtist;
+            }
+            for (SongItem s : group) {
+                if (!s.albumArtist.equals(main) && s.albumArtist.startsWith(main)
+                        && CREDIT_LEAD.matcher(s.albumArtist.substring(main.length())).lookingAt()) {
+                    s.albumArtist = main;
+                    folded++;
+                }
+            }
+
+            java.util.LinkedHashMap<String, List<SongItem>> byArtist = new java.util.LinkedHashMap<>();
+            for (SongItem s : group) {
+                List<SongItem> g = byArtist.get(s.albumArtist);
+                if (g == null) byArtist.put(s.albumArtist, g = new ArrayList<>());
+                g.add(s);
+            }
+            if (byArtist.size() < 2) continue;
+            if (looksLikeCompilation(byArtist.values())) {
+                for (SongItem s : group) s.albumArtist = various;
+                compilations++;
+            } else {
+                for (java.util.Map.Entry<String, List<SongItem>> a : byArtist.entrySet())
+                    for (SongItem s : a.getValue()) s.album = name + " (" + a.getKey() + ")";
+                splitAlbums += byArtist.size();
+            }
+        }
+
+        // Artist credits: parts of "A, B" / "A & B" / "A feat. B" that are artists in their own right here.
+        java.util.HashMap<String, String> known = new java.util.HashMap<>(); // lower case -> as tagged
+        for (SongItem s : songs) known.put(s.artist.toLowerCase(Locale.ROOT), s.artist);
+        for (SongItem s : songs) {
+            String[] parts = CREDIT_SPLIT.split(s.artist);
+            if (parts.length < 2) continue;
+            List<String> credits = new ArrayList<>();
+            for (String part : parts) {
+                String artist = known.get(part.trim().toLowerCase(Locale.ROOT));
+                if (artist != null && !artist.equals(s.artist) && !credits.contains(artist)) credits.add(artist);
+            }
+            if (!credits.isEmpty()) {
+                s.artistCredits = credits.toArray(new String[0]);
+                credited++;
+            }
+        }
+        android.util.Log.i("Y1Library", "Album grouping in " + (System.currentTimeMillis() - started) + " ms: "
+                + folded + " album artists folded, " + splitAlbums + " same-named albums told apart, "
+                + compilations + " compilations, " + credited + " tracks credited to more artists");
+    }
+
+    // Several artists' tracks under one album name: one compilation (Various Artists), or different albums
+    // that happen to share a name? A compilation has 3+ artists, a single year and no two tracks with the
+    // same number.
+    private boolean looksLikeCompilation(java.util.Collection<List<SongItem>> byArtist) {
+        if (byArtist.size() < 3) return false;
+        java.util.HashSet<Integer> tracks = new java.util.HashSet<>();
+        java.util.HashSet<Integer> years = new java.util.HashSet<>();
+        for (List<SongItem> g : byArtist) {
+            for (SongItem s : g) {
+                Integer n = trackNumberMap.get(s.file.getAbsolutePath());
+                if (n != null && n > 0 && !tracks.add(n)) return false;
+                int y = yearOf(s.year);
+                if (y > 0) years.add(y);
+            }
+        }
+        return years.size() <= 1;
+    }
+
+    // Track artist matching for Artists: the tagged artist, or another library artist credited on it.
+    public static boolean isCreditedArtist(SongItem song, String artist) {
+        if (song.artist.equals(artist)) return true;
+        if (song.artistCredits != null)
+            for (String c : song.artistCredits) if (c.equals(artist)) return true;
+        return false;
     }
 
     private org.json.JSONArray songListToJson(List<SongItem> list) throws org.json.JSONException {
@@ -3078,10 +3199,10 @@ public class MainActivity extends Activity {
             o.put("path", song.file.getAbsolutePath());
             o.put("title", song.title);
             o.put("artist", song.artist);
-            o.put("album", song.album);
+            o.put("album", song.albumTag != null ? song.albumTag : song.album);
             o.put("year", song.year);
             o.put("genre", song.genre);
-            o.put("albumArtist", song.albumArtist);
+            o.put("albumArtist", song.albumArtistTag != null ? song.albumArtistTag : song.albumArtist);
             o.put("composer", song.composer);
             Integer trackNum = trackNumberMap.get(song.file.getAbsolutePath());
             o.put("trackNum", trackNum != null ? trackNum : 0);
@@ -3247,10 +3368,8 @@ public class MainActivity extends Activity {
 
         // 🚀 [신규 엔진 장착] 중복 폭탄 해체! 최고 음질 1개만 남기고 다 분쇄합니다!
         // (Only for the visible lists - the full lists keep duplicates so they're never re-tagged.)
-        final List<SongItem> visibleMusic = new ArrayList<>(customLibraryAll);
-        filterDuplicateSongs(visibleMusic);
-        final List<SongItem> visibleBooks = new ArrayList<>(audiobookLibraryAll);
-        filterDuplicateSongs(visibleBooks);
+        final List<SongItem> visibleMusic = prepareVisibleLibrary(customLibraryAll, true);
+        final List<SongItem> visibleBooks = prepareVisibleLibrary(audiobookLibraryAll, false);
 
         // 즐겨찾기 자동 청소기
         // (Checks the full lists: a favorite that's merely a hidden duplicate still exists on the card.)
@@ -9539,8 +9658,8 @@ public class MainActivity extends Activity {
             // 🚀 [수정] 앨범 목록을 특정 아티스트로 걸러야 한다면, 그 아티스트의 곡이 아닌 건 건너뜁니다!
             // (Album Artists에서 들어왔으면 albumArtist 기준, Artists에서 들어왔으면 트랙 artist 기준)
             if (type.equals("ALBUM") && !categoryArtistFilter.isEmpty()) {
-                String matchField = categoryArtistFilterIsTrackArtist ? song.artist : song.albumArtist;
-                if (!categoryArtistFilter.equals(matchField)) {
+                if (categoryArtistFilterIsTrackArtist ? !isCreditedArtist(song, categoryArtistFilter)
+                        : !categoryArtistFilter.equals(song.albumArtist)) {
                     continue;
                 }
             }
@@ -10406,7 +10525,7 @@ public class MainActivity extends Activity {
                 }
 
                 if (isRecentPassed && (virtualQueryType.equals("ALL") || virtualQueryType.equals("RECENT") ||
-                        (virtualQueryType.equals("ARTIST") && song.artist.equals(virtualQueryValue)) ||
+                        (virtualQueryType.equals("ARTIST") && isCreditedArtist(song, virtualQueryValue)) ||
                         (virtualQueryType.equals("ARTIST_ALL_ALBUMS") && song.albumArtist.equals(virtualQueryValue)) ||
                         (virtualQueryType.equals("ALBUM") && song.album.equals(virtualQueryValue)) ||
                         (virtualQueryType.equals("COVER_FLOW_ALBUM") && song.album.equals(virtualQueryValue)) ||

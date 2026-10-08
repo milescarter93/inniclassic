@@ -195,8 +195,8 @@ public class CategoryListAdapter extends BaseAdapter {
             int allCount = 0;
             boolean isTrackArtistMode = MainActivity.instance.categoryArtistFilterIsTrackArtist;
             for (SongItem song : MainActivity.customLibrary) {
-                String matchField = isTrackArtistMode ? song.artist : song.albumArtist;
-                if (MainActivity.instance.categoryArtistFilter.equals(matchField))
+                String filter = MainActivity.instance.categoryArtistFilter;
+                if (isTrackArtistMode ? MainActivity.isCreditedArtist(song, filter) : filter.equals(song.albumArtist))
                     allCount++;
             }
             tvSubtitle.setText(allCount == 1 ? t1Song() : (allCount + " " + tSongs()));
