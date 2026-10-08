@@ -3938,7 +3938,12 @@ public class MainActivity extends Activity {
                     hzIndexScroll.requestChildFocus(layoutIndexContainer, tvAlpha);
 
                     // 🎯 [핵심 변경] 휠을 돌려서 포커스가 닿는 즉시! 클릭 없이 리스트 위치를 동기화하여 이동시킵니다.
-                    if (listVirtualSongs != null) {
+                    if (currentBrowserMode == BROWSER_COVER_FLOW) {
+                        if (!uniqueAlbumList.isEmpty() && entry.getValue() < uniqueAlbumList.size()) {
+                            currentCoverFlowIndex = entry.getValue(); // 🚀 [Cover Flow] jump to the letter
+                            initCoverFlowPositions();
+                        }
+                    } else if (listVirtualSongs != null) {
                         listVirtualSongs.setSelectionFromTop(entry.getValue(), 0);
                     }
                 } else {
@@ -3977,6 +3982,7 @@ public class MainActivity extends Activity {
 
                 // 1. 휠을 돌릴 때 이미 리스트가 움직였으므로, 여기선 퀵 바만 깔끔하게 숨깁니다!
                 hzIndexScroll.setVisibility(View.GONE);
+                if (currentBrowserMode == BROWSER_COVER_FLOW) return; // the covers already moved
 
                 // 2. 퀵 바가 사라지면서 휠 포커스가 허공에 뜨지 않게,
                 // 지금 화면에 맞춰진 그 알파벳의 첫 번째 곡에 자석처럼 포커스를 딱! 꽂아줍니다.
@@ -9853,14 +9859,31 @@ public class MainActivity extends Activity {
 
         // 🚀 [피드백 반영] 순수 앨범명 알파벳순이 아니라, 실제 아이팟처럼 아티스트별로 앨범을 묶어서
         // 정렬합니다 - 아티스트 안에서는 앨범명으로 2차 정렬.
+        // 🚀 [Cover Flow] Like the other lists: names without accents or a leading "The", and each artist's
+        // albums by year (earliest year of the album's songs), then by name.
+        final java.util.HashMap<String, Integer> albumYear = new java.util.HashMap<>();
+        for (SongItem song : combinedLibrary) {
+            int y = yearOf(song.year);
+            String k = song.albumArtist + '\u0001' + song.album;
+            Integer known = albumYear.get(k);
+            if (y > 0 && (known == null || y < known)) albumYear.put(k, y);
+        }
         java.util.Collections.sort(uniqueAlbumList, new java.util.Comparator<SongItem>() {
             @Override
             public int compare(SongItem s1, SongItem s2) {
-                int byArtist = s1.albumArtist.compareToIgnoreCase(s2.albumArtist);
+                int byArtist = sortKey(s1.albumArtist).compareTo(sortKey(s2.albumArtist));
                 if (byArtist != 0) return byArtist;
-                return s1.album.compareToIgnoreCase(s2.album);
+                Integer y1 = albumYear.get(s1.albumArtist + '\u0001' + s1.album);
+                Integer y2 = albumYear.get(s2.albumArtist + '\u0001' + s2.album);
+                int byYear = Integer.compare(y1 != null ? y1 : Integer.MAX_VALUE, y2 != null ? y2 : Integer.MAX_VALUE);
+                if (byYear != 0) return byYear;
+                return sortKey(s1.album).compareTo(sortKey(s2.album));
             }
         });
+        // 🚀 [Cover Flow] Hold Play/Pause: the alphabet bar, by album artist, jumps straight to the letter.
+        currentScrollIndexList.clear();
+        for (SongItem album : uniqueAlbumList) currentScrollIndexList.add(album.albumArtist);
+        buildAlphabetIndexBar();
 
         // 5. 해당 라이브러리에 앨범이 하나도 없다면 빈 화면 안내 메시지를 출력하고 탈출
         if (uniqueAlbumList.isEmpty()) {
@@ -10026,7 +10049,7 @@ public class MainActivity extends Activity {
         TextView tvArtist = card.findViewById(dynamicViewId(1003));
 
         tvTitle.setText(item.album);
-        tvArtist.setText(item.artist);
+        tvArtist.setText(item.albumArtist); // (the first track's artist could be a "Band, Guest" credit)
 
         final String path = item.file.getAbsolutePath();
         ivCover.setTag(path); // 비동기 꼬임 완벽 차단
@@ -10393,6 +10416,7 @@ public class MainActivity extends Activity {
     }
 
     private long lastCoverFlowTime = 0; // 🚀 스마트 변속용 타임머신 변수
+    private int coverFlowStreak = 0; // quick clicks in a row (acceleration)
 
     // 🚀 [순정 3D 엔진 5] 초고속 슬라이딩 엔진 (개수 가변형 연산 기하학 완비)
     private void scrollCoverFlow(boolean isNext) {
@@ -10407,6 +10431,16 @@ public class MainActivity extends Activity {
         long diff = now - lastCoverFlowTime;
         lastCoverFlowTime = now;
         int duration = (diff < 80) ? 30 : 180;
+
+        // 🚀 [Cover Flow] Spinning the wheel fast: after a few quick clicks, jump 5 albums per click
+        // (redrawn in place) and show the artist's letter, instead of one album per click.
+        coverFlowStreak = diff < 80 ? coverFlowStreak + 1 : 0;
+        if (coverFlowStreak >= 6 && total > 20) {
+            currentCoverFlowIndex = (currentCoverFlowIndex + (isNext ? 5 : -5) + total * 5) % total;
+            initCoverFlowPositions();
+            showFastScrollLetter(uniqueAlbumList.get(currentCoverFlowIndex).albumArtist);
+            return;
+        }
 
         if (isNext) {
             currentCoverFlowIndex = (currentCoverFlowIndex + 1) % total;
@@ -10656,7 +10690,8 @@ public class MainActivity extends Activity {
     private void buildFolderBrowserUI() {
         hideBrowserCoverPane();
         containerBrowserItems.removeAllViews();
-        tvBrowserPath.setText(t("Path") + ": " + currentFolder.getAbsolutePath().replace("/storage/sdcard0", ""));
+        String shownPath = currentFolder.getAbsolutePath().replace("/storage/sdcard0", "");
+        tvBrowserPath.setText(t("Path") + ": " + (shownPath.isEmpty() ? "/" : shownPath));
         File[] files = currentFolder.listFiles();
 
         if (files == null || files.length == 0) {
@@ -10694,6 +10729,8 @@ public class MainActivity extends Activity {
         List<File> imageFiles = new ArrayList<File>();
 
         for (File f : files) {
+            if (f.getName().startsWith("."))
+                continue; // 🚀 [Folders] hidden system folders/files (.android_secure, .y1_thumbs, caches)
             if (f.isDirectory())
                 folders.add(f);
             else if (isPickingBackground && isImageFile(f))
@@ -10714,6 +10751,13 @@ public class MainActivity extends Activity {
         java.util.Collections.sort(audioFiles, fileSorter);
         java.util.Collections.sort(apkFiles, fileSorter);
         java.util.Collections.sort(imageFiles, fileSorter);
+
+        // 🚀 [Folders] Music folders go in the recycling list (see buildFolderListView); the audiobook
+        // folders (progress backgrounds) and the background picker keep the row-per-file layout.
+        if (!isPickingBackground && currentBrowserMode == BROWSER_FOLDER && !isAudiobookLibraryMode) {
+            buildFolderListView(folders, apkFiles, audioFiles);
+            return;
+        }
         // 🚀🚀🚀 [여기에 새로 추가!] 현재 폴더에 음원 파일이 1개라도 있다면 최상단에 '전체 재생' 버튼 생성
         if (!isPickingBackground && (audioFiles.size() > 0 || folders.size() > 0)) {
             Button btnPlayAll = createListButton("▶ " + t("Play All"));
@@ -10738,8 +10782,9 @@ public class MainActivity extends Activity {
                             // 우리가 방금 만든 진공청소기 함수 호출!
                             collectAudioFilesAsFile(currentFolder, allAudioInFolder);
 
-                            // 긁어온 파일들을 이름순으로 예쁘게 정렬 (기존에 있던 fileSorter 사용)
-                            java.util.Collections.sort(allAudioInFolder, fileSorter);
+                            // 🚀 [Folders] By path, so each subfolder (album) stays together and in order;
+                            // sorting by file name alone interleaved the folders.
+                            sortByPath(allAudioInFolder);
 
                             // 4. 수집이 끝나면 다시 화면 쪽으로 돌아와서 재생 명령을 내립니다.
                             runOnUiThread(new Runnable() {
@@ -10828,6 +10873,123 @@ public class MainActivity extends Activity {
             return;
         }
         finishFolderBrowserUIRender();
+    }
+
+    private static void sortByPath(List<File> files) {
+        java.util.Collections.sort(files, new java.util.Comparator<File>() {
+            @Override
+            public int compare(File a, File b) {
+                return a.getAbsolutePath().compareToIgnoreCase(b.getAbsolutePath());
+            }
+        });
+    }
+
+    // 🚀 [Folders] Music folder browsing in the recycling list view (listVirtualSongs): "Play All", folders,
+    // APKs, then audio files. Hold Play/Pause on a file opens the song menu; the alphabet bar jumps by
+    // name. Focus goes to the folder we came back from, else the playing file, else the top.
+    private void buildFolderListView(List<File> folders, List<File> apkFiles, final List<File> audioFiles) {
+        long started = System.currentTimeMillis();
+        scrollViewBrowser.setVisibility(View.GONE);
+        listVirtualSongs.setVisibility(View.VISIBLE);
+        virtualQueryType = "FOLDER";
+
+        final List<com.themoon.y1.adapters.FolderListAdapter.Row> rows = new ArrayList<>();
+        if (!audioFiles.isEmpty() || !folders.isEmpty())
+            rows.add(new com.themoon.y1.adapters.FolderListAdapter.Row(
+                    com.themoon.y1.adapters.FolderListAdapter.PLAY_ALL, currentFolder, "▶ " + t("Play All")));
+        for (File f : folders)
+            rows.add(new com.themoon.y1.adapters.FolderListAdapter.Row(
+                    com.themoon.y1.adapters.FolderListAdapter.FOLDER, f, f.getName()));
+        for (File f : apkFiles)
+            rows.add(new com.themoon.y1.adapters.FolderListAdapter.Row(
+                    com.themoon.y1.adapters.FolderListAdapter.APK, f, "📦 [" + t("INSTALL") + "] " + f.getName()));
+        for (File f : audioFiles)
+            rows.add(new com.themoon.y1.adapters.FolderListAdapter.Row(
+                    com.themoon.y1.adapters.FolderListAdapter.AUDIO, f, f.getName()));
+
+        virtualSongList.clear();
+        virtualSongList.addAll(audioFiles);
+        currentScrollIndexList.clear();
+        for (com.themoon.y1.adapters.FolderListAdapter.Row r : rows) currentScrollIndexList.add(r.label);
+
+        listVirtualSongs.setAdapter(new com.themoon.y1.adapters.FolderListAdapter(rows, row -> {
+            switch (row.type) {
+                case com.themoon.y1.adapters.FolderListAdapter.PLAY_ALL:
+                    playAllInFolder(currentFolder);
+                    break;
+                case com.themoon.y1.adapters.FolderListAdapter.FOLDER:
+                    currentFolder = row.file;
+                    buildFileBrowserUI();
+                    break;
+                case com.themoon.y1.adapters.FolderListAdapter.APK:
+                    installApk(row.file);
+                    break;
+                default:
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().setupFolderPlaylist(row.file, currentFolder);
+                    changeScreen(STATE_PLAYER);
+                    break;
+            }
+        }));
+
+        int target = 0;
+        String playing = (currentIndex >= 0 && currentIndex < currentPlaylist.size())
+                ? currentPlaylist.get(currentIndex).getAbsolutePath() : null;
+        for (int i = 0; i < rows.size(); i++) {
+            com.themoon.y1.adapters.FolderListAdapter.Row r = rows.get(i);
+            if (!lastBrowserFocusText.isEmpty()) {
+                if (r.type == com.themoon.y1.adapters.FolderListAdapter.FOLDER && r.label.equals(lastBrowserFocusText)) {
+                    target = i;
+                    break;
+                }
+            } else if (playing != null && r.file.getAbsolutePath().equals(playing)) {
+                target = i;
+                break;
+            }
+        }
+        lastBrowserFocusText = "";
+        final int focusRow = target;
+        listVirtualSongs.post(new Runnable() {
+            @Override
+            public void run() {
+                listVirtualSongs.setSelectionFromTop(focusRow, focusRow > 0 ? listVirtualSongs.getHeight() / 3 : 0);
+                listVirtualSongs.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        int visible = focusRow - listVirtualSongs.getFirstVisiblePosition();
+                        if (visible >= 0 && visible < listVirtualSongs.getChildCount())
+                            listVirtualSongs.getChildAt(visible).requestFocus();
+                    }
+                }, 50);
+            }
+        });
+        buildAlphabetIndexBar();
+        android.util.Log.i("Y1Library", "Folder " + currentFolder.getAbsolutePath() + ": " + rows.size()
+                + " rows in " + (System.currentTimeMillis() - started) + " ms");
+    }
+
+    // Everything under the folder, by path (each subfolder together), from the first song.
+    private void playAllInFolder(final File folder) {
+        final List<File> all = new ArrayList<>();
+        showLoadingPopup();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                collectAudioFilesAsFile(folder, all);
+                sortByPath(all);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (layoutLoadingOverlay != null) layoutLoadingOverlay.setVisibility(View.GONE);
+                        if (all.isEmpty()) {
+                            Toast.makeText(MainActivity.this, t("No audio files found in subfolders."), Toast.LENGTH_SHORT).show();
+                        } else {
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackList(all, 0);
+                            changeScreen(STATE_PLAYER);
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 
     private static final int FOLDER_ROW_CHUNK_SIZE = 25;
