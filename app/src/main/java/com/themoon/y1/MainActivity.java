@@ -12521,6 +12521,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
         }
         updateNowPlayingInfo(); // repeat/shuffle changes what plays next
+        com.themoon.y1.managers.AudioPlayerManager.getInstance().refreshGaplessNext(); // 🚀 [Gapless] same for the queued track
     }
 
     // 🚀 [Now Playing Info] Settings > "Now Playing Info": a format line ("MP3 · 320 kbps · 44.1 kHz")

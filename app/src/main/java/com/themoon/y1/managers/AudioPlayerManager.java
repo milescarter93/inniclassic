@@ -216,19 +216,32 @@ public class AudioPlayerManager {
                 // PLAYLIST_CHANGED(=setMediaItems 최초 호출)는 playTrackList가 직접 처리하므로 제외합니다.
                 @Override
                 public void onMediaItemTransition(MediaItem mediaItem, int reason) {
-                    if (!isGaplessQueueActive || MainActivity.instance == null) return;
-                    if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
-                            && reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) return;
-
+                    // 🚀 [Gapless] The playing track ran into the one queued after it (see loadGaplessWindow).
+                    if (!isGaplessQueueActive || MainActivity.instance == null
+                            || reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return;
                     final MainActivity main = MainActivity.instance;
-                    int newIndex = exoPlayer.getCurrentWindowIndex();
-                    if (newIndex < 0 || newIndex >= main.currentPlaylist.size()) return;
-
+                    if (windowNextIndex < 0 || windowNextIndex >= main.currentPlaylist.size()) return;
+                    // The track that just ended played to the end: give it to the scrobbler now (the
+                    // position below is already the next track's, near 0 - with the old full-queue gapless,
+                    // only the first track of an album was ever logged).
+                    LastFmScrobbler.getInstance(main).onTrackFinished();
+                    final int newIndex = windowNextIndex;
                     main.currentIndex = newIndex;
                     main.lastTrackChangeTime = System.currentTimeMillis();
                     main.runOnUiThread(() -> {
+                        // Drop the finished track from the window; the new one becomes item 0.
+                        while (exoPlayer.getCurrentWindowIndex() > 0) exoPlayer.removeMediaItem(0);
+                        gaplessAdvance = true; // metadata/screen only, the audio is already playing
                         prepareMusicTrack(newIndex);
+                        // The state stays READY across a gapless transition, so the READY handler doesn't
+                        // run: start the scrobbler on the new track here.
+                        LastFmScrobbler.getInstance(main).onTrackStart(pendingScrobbleArtist, pendingScrobbleTitle,
+                                pendingScrobbleAlbum, getDuration(), pendingScrobblePath);
+                        refreshGaplessNext();
                         main.updatePlayerUI();
+                        android.util.Log.i("Y1Gapless", "Gapless -> #" + (newIndex + 1) + " "
+                                + main.currentPlaylist.get(newIndex).getName()
+                                + (windowNextFile != null ? ", next queued: " + windowNextFile.getName() : ", nothing queued"));
                     });
                 }
             });
@@ -251,9 +264,9 @@ public class AudioPlayerManager {
     // 🚀 [신규 엔진] 메인 화면의 셔플 버튼을 눌렀을 때 ExoPlayer에 실시간으로 명령을 하달합니다!
     // =======================================================
     public void setShuffleMode(boolean isShuffle) {
-        if (exoPlayer != null && !isUsingLegacyPlayer) {
-            exoPlayer.setShuffleModeEnabled(isShuffle);
-        }
+        // 🚀 [Gapless] Our queue is reshuffled/unshuffled by the caller; ExoPlayer's own shuffle must stay
+        // off (it would play the window in its own order). Just re-check the queued next track.
+        refreshGaplessNext();
     }
     public float getCurrentSpeed() { return currentSpeed; }
 
@@ -346,29 +359,8 @@ public class AudioPlayerManager {
             // 셔플이 꺼져있다면 원본 순서 그대로!
             main.currentIndex = index;
         }
-// 🚀 [추가] ExoPlayer 엔진 자체에도 셔플 상태를 명확히 인지시킵니다!
-        if (!isUsingLegacyPlayer && exoPlayer != null) {
-            exoPlayer.setShuffleModeEnabled(isShuffle);
-        }
+        // (The queue is shuffled here; ExoPlayer's own shuffle stays off - see loadGaplessWindow.)
         main.isPausedByHand = false; // 🚀 스위치를 미리 켜줍니다!
-
-        // 🚀 [Gapless 재생] 앨범(또는 15곡 이하 목록)이고 셔플이 꺼져 있고 FLAC이 섞여있지 않으면
-        // ExoPlayer의 네이티브 큐로 전체 목록을 한 번에 장전해서 트랙 사이에 끊김이 없게 합니다.
-        // 큰 목록(전체 곡 셔플 재생 등)은 기존 방식(트랙별 개별 로드) 그대로 둡니다.
-        isGaplessQueueActive = !isShuffle && shouldUseGaplessQueue(main.currentPlaylist);
-        if (isGaplessQueueActive) {
-            List<MediaItem> mediaItems = new ArrayList<>();
-            for (File f : main.currentPlaylist) {
-                mediaItems.add(MediaItem.fromUri(Uri.fromFile(f)));
-            }
-            if (legacyPlayer != null) { legacyPlayer.stop(); legacyPlayer.reset(); }
-            exoPlayer.stop();
-            exoPlayer.setMediaItems(mediaItems, main.currentIndex, 0);
-            exoPlayer.setShuffleModeEnabled(false);
-            exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
-            exoPlayer.prepare();
-            if (!main.isPausedByHand) exoPlayer.setPlayWhenReady(true);
-        }
 
         // 🚀 [Crash recovery] Remember this queue in the order it will actually play.
         PlaybackStateStore.saveQueue(main, main.originalPlaylist, main.currentPlaylist);
@@ -393,23 +385,7 @@ public class AudioPlayerManager {
         main.currentIndex = state.index;
         main.isPausedByHand = !play;
 
-        boolean isShuffle = main.prefs.getBoolean("shuffle", false);
-        if (exoPlayer != null) exoPlayer.setShuffleModeEnabled(false); // the saved order already is the play order
-        isGaplessQueueActive = !isShuffle && shouldUseGaplessQueue(main.currentPlaylist);
-        if (isGaplessQueueActive) {
-            List<MediaItem> mediaItems = new ArrayList<>();
-            for (File f : main.currentPlaylist) {
-                mediaItems.add(MediaItem.fromUri(Uri.fromFile(f)));
-            }
-            if (legacyPlayer != null) { legacyPlayer.stop(); legacyPlayer.reset(); }
-            exoPlayer.stop();
-            exoPlayer.setMediaItems(mediaItems, main.currentIndex, 0);
-            exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
-            exoPlayer.prepare();
-            exoPlayer.setPlayWhenReady(play);
-        }
-
-        prepareMusicTrack(main.currentIndex);
+        prepareMusicTrack(main.currentIndex); // loads the gapless window (the saved order is the play order)
         if (state.positionMs > 0) {
             try {
                 seekRelative(state.positionMs - getCurrentPosition());
@@ -422,14 +398,81 @@ public class AudioPlayerManager {
         return true;
     }
 
-    // 🚀 [Gapless 재생 조건] 앨범(대부분 15곡 이하)이거나 명시적으로 15곡 이하인 재생목록일 때만 켭니다.
-    // FLAC은 별도의 legacyPlayer 엔진을 쓰기 때문에 ExoPlayer 네이티브 큐에 섞일 수 없어 제외합니다.
-    private boolean shouldUseGaplessQueue(List<File> list) {
-        if (list.size() > 15) return false;
-        for (File f : list) {
-            if (f.getName().toLowerCase().endsWith(".flac")) return false;
+    // =======================================================
+    // 🚀 [Gapless] ExoPlayer holds a two-track window: the playing track and the one that plays after it
+    // (per the queue and repeat mode). When the first ends, ExoPlayer runs straight into the second with no
+    // gap (onMediaItemTransition), the finished one is dropped and the following track is queued. Any queue
+    // size, shuffled or not. It used to load the whole queue into ExoPlayer, so it was limited to lists of
+    // 15 tracks without shuffle - a whole-library shuffle reloaded the player at every track.
+    // FLAC plays on the separate legacy player, so a FLAC track is never queued behind another track (that
+    // change is a normal reload). Skipping, picking a track or restoring loads a fresh window.
+    // =======================================================
+    private File windowNextFile;     // the track queued after the playing one, or null
+    private int windowNextIndex = -1; // its queue index
+    private boolean gaplessAdvance;  // prepareMusicTrack: ExoPlayer already moved on, only refresh the screen
+
+    private static boolean canQueueGapless(File f) {
+        return f != null && f.exists() && !f.getName().toLowerCase().endsWith(".flac");
+    }
+
+    // Queue index that plays when the current track ends, or -1 (end of the queue with repeat off).
+    private int nextIndexAfterCurrent(MainActivity main) {
+        int size = main.currentPlaylist.size();
+        if (size == 0 || main.currentIndex < 0 || main.currentIndex >= size) return -1;
+        int repeat = main.prefs.getInt("repeat_mode", 0);
+        if (repeat == 1) return main.currentIndex;
+        if (main.currentIndex + 1 < size) return main.currentIndex + 1;
+        return repeat == 2 ? 0 : -1;
+    }
+
+    private MediaSource mediaSourceFor(MainActivity main, File f) {
+        MediaItem item = MediaItem.fromUri(Uri.fromFile(f));
+        DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(main, Util.getUserAgent(main, "Y1_Launcher"));
+        DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true);
+        return new ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory).createMediaSource(item);
+    }
+
+    private void loadGaplessWindow(MainActivity main, File track, long startMs, boolean play) {
+        if (legacyPlayer != null) { legacyPlayer.stop(); legacyPlayer.reset(); }
+        if (exoPlayer == null) initPlayer(main.getApplicationContext());
+        else exoPlayer.stop();
+        List<MediaSource> sources = new ArrayList<>();
+        sources.add(mediaSourceFor(main, track));
+        windowNextIndex = nextIndexAfterCurrent(main);
+        windowNextFile = windowNextIndex >= 0 ? main.currentPlaylist.get(windowNextIndex) : null;
+        if (!canQueueGapless(windowNextFile)) {
+            windowNextFile = null;
+            windowNextIndex = -1;
         }
-        return true;
+        if (windowNextFile != null) sources.add(mediaSourceFor(main, windowNextFile));
+        exoPlayer.setShuffleModeEnabled(false); // our queue is already in play order
+        exoPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
+        exoPlayer.setMediaSources(sources, 0, Math.max(0, startMs));
+        exoPlayer.prepare();
+        exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
+        if (play) exoPlayer.setPlayWhenReady(true);
+        isGaplessQueueActive = true;
+    }
+
+    // After the queue, shuffle or repeat mode changed: make sure the right track is queued after the
+    // playing one (without touching the playing one, so playback doesn't skip).
+    public void refreshGaplessNext() {
+        MainActivity main = MainActivity.instance;
+        if (main == null || !isGaplessQueueActive || isUsingLegacyPlayer || exoPlayer == null) return;
+        int want = nextIndexAfterCurrent(main);
+        File wantFile = want >= 0 ? main.currentPlaylist.get(want) : null;
+        if (!canQueueGapless(wantFile)) {
+            wantFile = null;
+            want = -1;
+        }
+        int cur = exoPlayer.getCurrentWindowIndex();
+        boolean queuedOk = exoPlayer.getMediaItemCount() == cur + (wantFile != null ? 2 : 1)
+                && (wantFile == null ? windowNextFile == null : wantFile.equals(windowNextFile));
+        windowNextIndex = want;
+        if (queuedOk) return; // same file already queued (keeps what ExoPlayer has buffered of it)
+        while (exoPlayer.getMediaItemCount() > cur + 1) exoPlayer.removeMediaItem(exoPlayer.getMediaItemCount() - 1);
+        if (wantFile != null) exoPlayer.addMediaSource(mediaSourceFor(main, wantFile));
+        windowNextFile = wantFile;
     }
     public void playPodcastStream(String url, String title, String imageUrl, String channelName, int offsetMs) {
         final MainActivity main = MainActivity.instance;
@@ -587,17 +630,6 @@ public class AudioPlayerManager {
         if (main == null || main.currentPlaylist.isEmpty()) return;
         main.lastTrackChangeTime = System.currentTimeMillis();
 
-        // 🚀 [Gapless 재생] 큐 안에서 그대로 다음 곡으로 넘어갑니다 - onMediaItemTransition 리스너가
-        // currentIndex 갱신과 화면 새로고침을 알아서 처리하므로 여기서 중복으로 하지 않습니다.
-        if (isGaplessQueueActive && exoPlayer != null) {
-            if (exoPlayer.hasNext()) {
-                exoPlayer.next();
-            } else {
-                exoPlayer.seekTo(0, 0);
-            }
-            return;
-        }
-
         main.currentIndex = (main.currentIndex + 1) % main.currentPlaylist.size();
         prepareMusicTrack(main.currentIndex);
         main.updatePlayerUI();
@@ -608,15 +640,6 @@ public class AudioPlayerManager {
         MainActivity main = MainActivity.instance;
         if (main == null || main.currentPlaylist.isEmpty()) return;
         main.lastTrackChangeTime = System.currentTimeMillis();
-
-        if (isGaplessQueueActive && exoPlayer != null) {
-            if (exoPlayer.hasPrevious()) {
-                exoPlayer.previous();
-            } else {
-                exoPlayer.seekTo(main.currentPlaylist.size() - 1, 0);
-            }
-            return;
-        }
 
         main.currentIndex--;
         if (main.currentIndex < 0) main.currentIndex = main.currentPlaylist.size() - 1;
@@ -636,12 +659,6 @@ public class AudioPlayerManager {
         saveAudiobookBookmarkIfNeeded();
         main.lastTrackChangeTime = System.currentTimeMillis();
         main.isPausedByHand = false;
-        if (isGaplessQueueActive && exoPlayer != null) {
-            // onMediaItemTransition (reason SEEK) updates currentIndex and the screen.
-            exoPlayer.seekTo(index, 0);
-            exoPlayer.setPlayWhenReady(true);
-            return;
-        }
         main.currentIndex = index;
         prepareMusicTrack(index);
         main.updatePlayerUI();
@@ -656,9 +673,6 @@ public class AudioPlayerManager {
         if (index < main.currentIndex) main.currentIndex--;
         // Also from the unshuffled order, so toggling shuffle doesn't bring it back.
         main.originalPlaylist.remove(removed);
-        if (isGaplessQueueActive && exoPlayer != null && index < exoPlayer.getMediaItemCount()) {
-            exoPlayer.removeMediaItem(index);
-        }
         afterQueueEdit(main);
         return true;
     }
@@ -676,10 +690,6 @@ public class AudioPlayerManager {
         else if (from < cur && to >= cur) cur--;
         else if (from > cur && to <= cur) cur++;
         main.currentIndex = cur;
-        if (isGaplessQueueActive && exoPlayer != null && from < exoPlayer.getMediaItemCount()
-                && to < exoPlayer.getMediaItemCount()) {
-            exoPlayer.moveMediaItem(from, to);
-        }
         afterQueueEdit(main);
         return true;
     }
@@ -701,15 +711,13 @@ public class AudioPlayerManager {
         main.currentPlaylist.add(pos, file);
         // Keep it in the unshuffled order too, so turning shuffle off doesn't drop it.
         main.originalPlaylist.add(file);
-        if (isGaplessQueueActive && exoPlayer != null && pos <= exoPlayer.getMediaItemCount()) {
-            exoPlayer.addMediaItem(pos, MediaItem.fromUri(Uri.fromFile(file)));
-        }
         afterQueueEdit(main);
         return true;
     }
 
     // Call after the queue order changed in any way (queue edits, shuffle on/off).
     public void afterQueueEdit(MainActivity main) {
+        refreshGaplessNext(); // 🚀 [Gapless] the track after the playing one may have changed
         // With shuffle off the play order is the "original" order, so keep the user's edits in it.
         if (!main.prefs.getBoolean("shuffle", false)) {
             main.originalPlaylist.clear();
@@ -739,6 +747,9 @@ public class AudioPlayerManager {
     // 🚀 [순정 및 동기화 완벽 복원] 번쩍이는 딜레이를 아예 없앴습니다!
     public void prepareMusicTrack(int index) {
         final MainActivity main = MainActivity.instance;
+        // 🚀 [Gapless] Consumed here, so an early return below can't leave it set for the next load.
+        final boolean advance = gaplessAdvance;
+        gaplessAdvance = false;
         if (main == null || main.currentPlaylist.isEmpty()) return;
 
         // The track that's about to be replaced gets one last chance to scrobble,
@@ -1012,6 +1023,9 @@ public class AudioPlayerManager {
             if (isUsingLegacyPlayer) {
                 // FLAC: 데드락 구출용 특수 엔진
                 if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); }
+                isGaplessQueueActive = false; // 🚀 [Gapless] no ExoPlayer window while the legacy player plays
+                windowNextFile = null;
+                windowNextIndex = -1;
 
                 if (legacyPlayer == null) {
                     legacyPlayer = new MediaPlayer();
@@ -1061,38 +1075,16 @@ public class AudioPlayerManager {
                 com.themoon.y1.managers.LastFmScrobbler.getInstance(main)
                         .onTrackStart(pendingScrobbleArtist, pendingScrobbleTitle, pendingScrobbleAlbum, duration, pendingScrobblePath);
 
-            } else if (isGaplessQueueActive) {
-                // 🚀 [Gapless 재생] ExoPlayer가 이미 내부 큐에서 이 트랙으로 넘어가 있는 상태입니다 (직접
-                // 넣어놓은 setMediaItems() 큐를 통해서든, onMediaItemTransition으로 자동으로든) - 여기서
-                // 다시 stop/setMediaSource/prepare를 하면 오히려 끊김이 생기므로, 재장전 없이 그대로
-                // 이어서 재생합니다. 위에서 이미 메타데이터/화면(제목, 아티스트, 커버 등)은 갱신되었습니다.
+            } else if (advance && isGaplessQueueActive) {
+                // 🚀 [Gapless] ExoPlayer already ran into this track from the window; nothing to load
+                // (the screen, cover and metadata were refreshed above).
                 exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
             } else {
-                // MP3/WAV: 초고속 ExoPlayer
-                if (legacyPlayer != null) { legacyPlayer.stop(); legacyPlayer.reset(); }
-
-                if (exoPlayer == null) initPlayer(main.getApplicationContext());
-                else exoPlayer.stop();
-
-                com.google.android.exoplayer2.MediaItem mediaItem = com.google.android.exoplayer2.MediaItem.fromUri(Uri.fromFile(track));
-                DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(main, Util.getUserAgent(main, "Y1_Launcher"));
-                DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true);
-                MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory).createMediaSource(mediaItem);
-
-                exoPlayer.setMediaSource(mediaSource);
-                exoPlayer.prepare(); // 💡 장전 완료!
-// 🚀 [추가 확인사살] 곡을 장전할 때마다 현재 셔플 상태를 엑소 엔진에 강제 주입!
-                boolean isShuffle = main.prefs.getBoolean("shuffle", false);
-                exoPlayer.setShuffleModeEnabled(isShuffle);
+                // MP3/WAV: 초고속 ExoPlayer - with the next track queued behind it (gapless window)
                 // 🚀 [핵심 로직 2] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
                 int savedPos = main.prefs.getInt("book_pos_" + track.getAbsolutePath(), 0);
-                if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
-                    exoPlayer.seekTo(savedPos);
-                }
-
-                exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
-
-                if (!main.isPausedByHand) exoPlayer.setPlayWhenReady(true);
+                boolean resume = savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"));
+                loadGaplessWindow(main, track, resume ? savedPos : 0, !main.isPausedByHand);
             }
 
             main.consecutiveErrorCount = 0;

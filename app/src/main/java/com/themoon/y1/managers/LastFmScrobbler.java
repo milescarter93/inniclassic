@@ -193,6 +193,11 @@ public class LastFmScrobbler {
 
     // Call right before switching away from the current track (skip, auto-advance,
     // or natural completion) with its current playback position.
+    // 🚀 [Gapless] The current track played to its end (ExoPlayer ran straight into the next one).
+    public void onTrackFinished() {
+        evaluateAndMaybeSubmit(curDurationMs);
+    }
+
     public void evaluateAndMaybeSubmit(long currentPositionMs) {
         // 🚀 [버그 수리] 예전엔 이 함수 전체가 !isEnabled()(=Settings의 "Scrobble to Last.fm" 토글)에 걸려
         // 있어서, 로그인은 물론 그 토글을 직접 켠 적도 없는 사용자는 로컬 .scrobbler.log조차 절대 생성되지
