@@ -149,6 +149,9 @@ public class SongListAdapter extends BaseAdapter {
             }
         }
 
+        // 🚀 [Playlist editing] The song being moved in a playlist.
+        if (MainActivity.instance.playlistMoveIndex == songPosition && "M3U".equals(MainActivity.instance.virtualQueryType)) displayTitle = "⇅  " + displayTitle;
+
         // 🚀 UI 그리기 (계산된 텍스트와 색상을 여기서 한 번에 입힙니다)
         if (convertView == null) {
             btn = MainActivity.instance.createListButtonWithIcon(iconCode, displayTitle, customColor);

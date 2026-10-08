@@ -4592,6 +4592,7 @@ public class MainActivity extends Activity {
             // The wheel keyboard started as the Wi-Fi password screen but is shared by several features;
             // title it after what it's being used for.
             if (currentKeyboardMode == 4) title = t("Search");
+            else if (currentKeyboardMode >= 5 && currentKeyboardMode <= 7) title = t("Playlists");
             else if (currentKeyboardMode == 1) title = t("Search Podcast");
             else if (currentKeyboardMode == 2 || currentKeyboardMode == 3) title = "Last.fm";
             else title = t("Wi-Fi");
@@ -4623,6 +4624,10 @@ public class MainActivity extends Activity {
     }
 
     public void changeScreen(int state) {
+        if (state != STATE_BROWSER) { // 🚀 [Playlist editing] leaving the playlist ends move mode
+            playlistMoveIndex = -1;
+            playlistMoveFile = null;
+        }
         // 🚀 [경로 추적 엔진] 화면이 바뀌기 직전에, 내가 어디서 출발했는지 정확하게 백미러에 기록합니다!
         if (state == STATE_PLAYER) {
             if (currentScreenState == STATE_MENU || currentScreenState == STATE_BROWSER
@@ -5528,6 +5533,10 @@ public class MainActivity extends Activity {
 
     // 🚀 [직결 성공] 포커스 시스템을 우회하여 정중앙 앨범의 노래 리스트로 다이렉트 진입합니다!
     private void handleCenterShortClick() {
+        if (playlistMoveIndex >= 0 && currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_M3U_SONGS) {
+            finishPlaylistMove(); // 🚀 [Playlist editing] drop the song where it is
+            return;
+        }
         if (currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_COVER_FLOW) {
             if (uniqueAlbumList != null && !uniqueAlbumList.isEmpty() && currentCoverFlowIndex >= 0
                     && currentCoverFlowIndex < uniqueAlbumList.size()) {
@@ -5656,6 +5665,12 @@ public class MainActivity extends Activity {
             tvKeyboardSsid.setText(t("Last.fm Password") + ": " + pendingLastFmUsername);
         } else if (currentKeyboardMode == 4) {
             tvKeyboardSsid.setText("🔍 " + t("Search"));
+        } else if (currentKeyboardMode == 5) {
+            tvKeyboardSsid.setText(t("New Playlist"));
+        } else if (currentKeyboardMode == 6) {
+            tvKeyboardSsid.setText(t("Rename Playlist"));
+        } else if (currentKeyboardMode == 7) {
+            tvKeyboardSsid.setText(t("Save On-The-Go As"));
         } else {
             tvKeyboardSsid.setText(t("Target") + ": " + targetWifiSsid);
         }
@@ -5689,6 +5704,8 @@ public class MainActivity extends Activity {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter Last.fm password...") : typedPassword);
             } else if (currentKeyboardMode == 4) {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter search term...") : typedPassword);
+            } else if (currentKeyboardMode >= 5 && currentKeyboardMode <= 7) {
+                tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter a name...") : typedPassword);
             } else {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter Password...") : typedPassword);
             }
@@ -5709,7 +5726,9 @@ public class MainActivity extends Activity {
             // =======================================================
             // 🚀 [핵심 분기점] [CONN] 버튼을 눌렀을 때 발사되는 엔진 변경!
             // =======================================================
-            if (currentKeyboardMode == 1) {
+            if (currentKeyboardMode >= 5 && currentKeyboardMode <= 7) {
+                finishPlaylistName(typedPassword); // 🚀 [Playlist editing]
+            } else if (currentKeyboardMode == 1) {
                 if (typedPassword.trim().isEmpty()) {
                     Toast.makeText(this, t("Please enter a keyword."), Toast.LENGTH_SHORT).show();
                     return;
@@ -13119,6 +13138,19 @@ public class MainActivity extends Activity {
             return true;
         }
 
+        // 🚀 [Playlist editing] Move mode: the wheel moves the song, Back drops it (Center too, see
+        // handleCenterShortClick).
+        if (playlistMoveIndex >= 0 && currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_M3U_SONGS) {
+            if (keyCode == 21 || keyCode == 22) {
+                movePlaylistSong(keyCode == 22 ? 1 : -1);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                finishPlaylistMove();
+                return true;
+            }
+        }
+
         if (currentScreenState == STATE_WIFI_KEYBOARD) {
             if (keyCode == 21) {
                 keyboardIndex = (keyboardIndex - 1 + KEYBOARD_CHARS.length) % KEYBOARD_CHARS.length;
@@ -13134,6 +13166,12 @@ public class MainActivity extends Activity {
             }
 
             if (keyCode == KeyEvent.KEYCODE_BACK) {
+                if (currentKeyboardMode >= 5 && currentKeyboardMode <= 7) {
+                    currentKeyboardMode = 0; // 🚀 [Playlist editing] cancel naming
+                    changeScreen(playlistNameReturnState);
+                    clickFeedback();
+                    return true;
+                }
                 if (currentKeyboardMode == 1) {
                     currentKeyboardMode = 0; // 모드 초기화
                     changeScreen(STATE_BROWSER); // 다시 팟캐스트 화면으로 복귀!
@@ -14192,6 +14230,9 @@ public class MainActivity extends Activity {
                         // 🚀 [Song menu] On a song, hold Play/Pause opens its menu (queue, playlists, search -
                         // "Jump to Letter" there opens the alphabet this gesture used to toggle directly).
                         showSongMenu(getFocusedSongInList().file);
+                    } else if (currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_PLAYLISTS
+                            && containerBrowserItems != null) {
+                        showPlaylistMenu(containerBrowserItems.getFocusedChild()); // 🚀 [Playlist editing]
                     } else if (currentScreenState == STATE_MENU
                             || (currentScreenState == STATE_SETTINGS && !isRadioUIShowing)) {
                         showQuickSettingsDialog(); // 🚀 [Quick Settings]
@@ -16071,6 +16112,10 @@ public class MainActivity extends Activity {
         // 알파벳 대소문자 구분 없이 깔끔하게 정렬
         java.util.Collections.sort(m3uFiles, (f1, f2) -> f1.getName().compareToIgnoreCase(f2.getName()));
 
+        // 🚀 [Playlist editing] Which file each row is, for the hold-Play/Pause playlist menu.
+        playlistRowFiles.clear();
+        smartRowLists.clear();
+
         // 🚀 [Smart playlists] Rule-based lists (Y1_Playlists/Smart/*.json) first, like the iPod.
         com.themoon.y1.managers.SmartPlaylist.createStarterListsIfMissing(this::t);
         List<com.themoon.y1.managers.SmartPlaylist> smartLists = com.themoon.y1.managers.SmartPlaylist.loadAll();
@@ -16084,6 +16129,7 @@ public class MainActivity extends Activity {
                 virtualQueryValue = smart.name;
                 buildVirtualSongs();
             });
+            smartRowLists.put(b, smart);
             containerBrowserItems.addView(b);
         }
 
@@ -16097,6 +16143,7 @@ public class MainActivity extends Activity {
                 String cleanName = m3u.getName().substring(0, m3u.getName().lastIndexOf("."));
                 // Button b = createListButton("📝 " + cleanName);
                 View b = createListButtonWithIcon("\uE05F", cleanName);
+                playlistRowFiles.put(b, m3u);
 
                 // 1. 기존 동작: 짧게 누르면 플레이리스트 내부로 진입
                 b.setOnClickListener(v -> {
@@ -16333,6 +16380,14 @@ public class MainActivity extends Activity {
         currentScrollIndexList.clear();
 
         List<SongItem> songs = parseM3uFile(m3uFile);
+        virtualQueryType = "M3U"; // (a leftover "ALL" gave playlists the All Songs "Shuffle" row)
+        // 🚀 [Playlist editing] Show the songs' titles from the library rather than their file names.
+        java.util.HashMap<String, SongItem> byPath = new java.util.HashMap<>();
+        for (SongItem s : customLibrary) byPath.put(s.file.getAbsolutePath(), s);
+        for (int i = 0; i < songs.size(); i++) {
+            SongItem known = byPath.get(songs.get(i).file.getAbsolutePath());
+            if (known != null) songs.set(i, new SongItem(known.file, known.title, known.artist, known.album));
+        }
 
         // 정렬하지 않고 사용자가 .m3u 파일 안에 수동으로 배열해둔 순서 "그대로" 보존하여 장전합니다!
         for (SongItem song : songs) {
@@ -16349,7 +16404,10 @@ public class MainActivity extends Activity {
 
         // =======================================================
         int targetIndex = -1;
-        if (currentPlaylist != null && !currentPlaylist.isEmpty() && currentIndex >= 0
+        if (m3uFocusIndex >= 0) {
+            targetIndex = Math.min(m3uFocusIndex, songs.size() - 1); // 🚀 [Playlist editing] stay on the edited row
+            m3uFocusIndex = -1;
+        } else if (currentPlaylist != null && !currentPlaylist.isEmpty() && currentIndex >= 0
                 && currentIndex < currentPlaylist.size()) {
             File playingFile = currentPlaylist.get(currentIndex);
             for (int i = 0; i < songs.size(); i++) {
@@ -16492,17 +16550,8 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 clickFeedback();
-                int count = 1;
-                File newPlaylistFile;
-                do {
-                    newPlaylistFile = new File(playlistDir, t("Playlist ") + count + ".m3u8");
-                    count++;
-                } while (newPlaylistFile.exists());
-
-                writeSongToM3uFile(newPlaylistFile, songFile, false);
-                Toast.makeText(MainActivity.instance, t("Created Playlist ") + (count - 1) + " " + t("successfully!"),
-                        Toast.LENGTH_SHORT).show();
                 dialog.dismiss();
+                askPlaylistName(5, songFile, null); // 🚀 [Playlist editing] name it with the wheel keyboard
             }
         });
         layout.addView(btnNew);
@@ -17137,6 +17186,22 @@ public class MainActivity extends Activity {
         View.OnKeyListener wheel = dialogWheelKeyListener(layout);
         final com.themoon.y1.managers.AudioPlayerManager apm = com.themoon.y1.managers.AudioPlayerManager.getInstance();
 
+        // 🚀 [Playlist editing] Inside a playlist: move the song or take it out.
+        final int playlistPos = focusedSongPosition();
+        if (currentBrowserMode == BROWSER_M3U_SONGS && currentM3uFile != null && playlistPos >= 0) {
+            final File playlistFile = currentM3uFile;
+            if (virtualSongList.size() > 1) {
+                addQueueMenuRow(layout, wheel, t("Move"), v -> {
+                    dialog.dismiss();
+                    startPlaylistMove(playlistFile, playlistPos);
+                });
+            }
+            addQueueMenuRow(layout, wheel, t("Remove from Playlist"), v -> {
+                dialog.dismiss();
+                editPlaylist(playlistFile, playlistPos, 0);
+            });
+        }
+
         if (!currentPlaylist.isEmpty()) {
             addQueueMenuRow(layout, wheel, t("Play Next"), v -> {
                 dialog.dismiss();
@@ -17173,6 +17238,269 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
+            }
+        }, 50);
+    }
+
+    // =======================================================
+    // 🚀 [Playlist editing] On the Y1 itself: name new playlists, rename, delete, save On-The-Go under a
+    // name or clear it (hold Play/Pause on a playlist), and move or remove songs (hold Play/Pause on a song
+    // inside a playlist). The rows' long-click menus need a touch screen, so they were out of reach.
+    // =======================================================
+    private final java.util.HashMap<View, File> playlistRowFiles = new java.util.HashMap<>();
+    private final java.util.HashMap<View, com.themoon.y1.managers.SmartPlaylist> smartRowLists = new java.util.HashMap<>();
+    public int playlistMoveIndex = -1; // song being moved in the open playlist, or -1
+    private File playlistMoveFile;
+    private int m3uFocusIndex = -1; // row to focus when the playlist's songs are rebuilt
+    private File pendingPlaylistSong; // song to put in the playlist being named (may be null)
+    private File pendingPlaylistFile; // playlist being renamed / On-The-Go being saved
+    private int playlistNameReturnState = STATE_BROWSER;
+
+    // Position of the focused song among the list's songs (not counting a "Shuffle" row), or -1.
+    private int focusedSongPosition() {
+        try {
+            if (listVirtualSongs == null || listVirtualSongs.getVisibility() != View.VISIBLE) return -1;
+            View focused = listVirtualSongs.getFocusedChild();
+            if (focused == null) return -1;
+            int pos = listVirtualSongs.getPositionForView(focused);
+            if (pos == android.widget.AdapterView.INVALID_POSITION) return -1;
+            android.widget.ListAdapter a = listVirtualSongs.getAdapter();
+            if (a.getCount() > 0 && a.getItem(0) == null) pos--; // the "Shuffle" row
+            return pos;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private com.themoon.y1.managers.M3uPlaylist loadPlaylist(File f) throws Exception {
+        return com.themoon.y1.managers.M3uPlaylist.load(f, rootFolder, this::isAudioFile);
+    }
+
+    // step 0 = remove the song at pos; +1/-1 = move it down/up. Saves and redraws the list.
+    private boolean editPlaylist(File playlistFile, int pos, int step) {
+        try {
+            com.themoon.y1.managers.M3uPlaylist pl = loadPlaylist(playlistFile);
+            boolean ok = step == 0 ? pl.removeAt(pos) : pl.moveBy(pos, step);
+            if (!ok) return false;
+            pl.save();
+            android.util.Log.i("Y1Playlist", (step == 0 ? "Removed #" : "Moved #") + (pos + 1)
+                    + (step == 0 ? "" : " -> #" + (pos + 1 + step)) + " in " + playlistFile.getName());
+            m3uFocusIndex = step == 0 ? pos : pos + step;
+            buildM3uSongsUI(playlistFile);
+            if (step == 0) Toast.makeText(this, t("Removed from the playlist."), Toast.LENGTH_SHORT).show();
+            return true;
+        } catch (Exception e) {
+            android.util.Log.w("Y1Playlist", "Couldn't edit " + playlistFile.getName(), e);
+            Toast.makeText(this, t("Couldn't save the playlist."), Toast.LENGTH_SHORT).show();
+            return false;
+        }
+    }
+
+    private void startPlaylistMove(File playlistFile, int pos) {
+        playlistMoveFile = playlistFile;
+        playlistMoveIndex = pos;
+        m3uFocusIndex = pos;
+        buildM3uSongsUI(playlistFile); // redraw with the ⇅ mark
+        tvBrowserPath.setText(t("Move") + " ⇅");
+        Toast.makeText(this, t("Turn the wheel to move the song, Center to drop it."), Toast.LENGTH_SHORT).show();
+    }
+
+    private void movePlaylistSong(int step) {
+        int to = playlistMoveIndex + step;
+        if (to < 0 || to >= virtualSongList.size()) return;
+        int from = playlistMoveIndex;
+        playlistMoveIndex = to; // before the redraw, so the mark follows the song
+        if (editPlaylist(playlistMoveFile, from, step)) {
+            tvBrowserPath.setText(t("Move") + " ⇅");
+            clickFeedback();
+        } else {
+            playlistMoveIndex = from;
+        }
+    }
+
+    private void finishPlaylistMove() {
+        File f = playlistMoveFile;
+        int pos = playlistMoveIndex;
+        playlistMoveIndex = -1;
+        playlistMoveFile = null;
+        clickFeedback();
+        if (f != null) {
+            m3uFocusIndex = pos;
+            buildM3uSongsUI(f);
+        }
+    }
+
+    // mode 5 = new playlist (song may be null), 6 = rename playlist, 7 = save On-The-Go as.
+    private void askPlaylistName(int mode, File song, File playlist) {
+        pendingPlaylistSong = song;
+        pendingPlaylistFile = playlist;
+        playlistNameReturnState = currentScreenState == STATE_WIFI_KEYBOARD ? STATE_BROWSER : currentScreenState;
+        if (mode == 6 && playlist != null) {
+            keyboardPrefill = com.themoon.y1.managers.M3uPlaylist.displayName(playlist);
+        } else {
+            int n = 1;
+            while (com.themoon.y1.managers.M3uPlaylist.fileFor(t("Playlist ") + n) == null) n++;
+            keyboardPrefill = (t("Playlist ") + n).trim();
+        }
+        currentKeyboardMode = mode;
+        changeScreen(STATE_WIFI_KEYBOARD);
+    }
+
+    private void finishPlaylistName(String typed) {
+        String name = com.themoon.y1.managers.M3uPlaylist.cleanName(typed);
+        if (name == null) {
+            Toast.makeText(this, t("Please enter a name."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (com.themoon.y1.managers.M3uPlaylist.fileFor(name) == null
+                && !(currentKeyboardMode == 6 && pendingPlaylistFile != null
+                        && com.themoon.y1.managers.M3uPlaylist.displayName(pendingPlaylistFile).equalsIgnoreCase(name))) {
+            Toast.makeText(this, t("There's already a playlist with that name."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int mode = currentKeyboardMode;
+        currentKeyboardMode = 0;
+        File result = null;
+        try {
+            if (mode == 5) {
+                result = com.themoon.y1.managers.M3uPlaylist.createEmpty(name);
+                if (result != null && pendingPlaylistSong != null) writeSongToM3uFile(result, pendingPlaylistSong, true);
+            } else if (mode == 6 && pendingPlaylistFile != null) {
+                result = com.themoon.y1.managers.M3uPlaylist.displayName(pendingPlaylistFile).equals(name)
+                        ? pendingPlaylistFile : com.themoon.y1.managers.M3uPlaylist.rename(pendingPlaylistFile, name);
+            } else if (mode == 7 && pendingPlaylistFile != null) {
+                result = com.themoon.y1.managers.M3uPlaylist.copy(pendingPlaylistFile, name);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("Y1Playlist", "Couldn't save playlist " + name, e);
+        }
+        if (result == null) {
+            Toast.makeText(this, t("Couldn't save the playlist."), Toast.LENGTH_SHORT).show();
+        } else if (mode == 5) {
+            Toast.makeText(this, String.format(t("Created \"%s\"."), name), Toast.LENGTH_SHORT).show();
+        } else if (mode == 6) {
+            Toast.makeText(this, String.format(t("Renamed to \"%s\"."), name), Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, String.format(t("Saved as \"%s\"."), name), Toast.LENGTH_SHORT).show();
+        }
+        pendingPlaylistSong = null;
+        pendingPlaylistFile = null;
+        if (playlistNameReturnState == STATE_BROWSER && currentBrowserMode == BROWSER_PLAYLISTS)
+            lastBrowserFocusText = result != null ? com.themoon.y1.managers.M3uPlaylist.displayName(result) : "";
+        changeScreen(playlistNameReturnState);
+    }
+
+    // Hold Play/Pause on a row of the Playlists screen.
+    private void showPlaylistMenu(View row) {
+        final File m3u = row != null ? playlistRowFiles.get(row) : null;
+        final com.themoon.y1.managers.SmartPlaylist smart = row != null ? smartRowLists.get(row) : null;
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
+
+        boolean isOnTheGo = m3u != null && m3u.getName().equals(com.themoon.y1.managers.M3uPlaylist.ON_THE_GO);
+        if (isOnTheGo) {
+            addQueueMenuRow(layout, wheel, t("Save as New Playlist"), v -> {
+                dialog.dismiss();
+                askPlaylistName(7, null, m3u);
+            });
+            addQueueMenuRow(layout, wheel, t("Clear On-The-Go"), v -> {
+                dialog.dismiss();
+                confirmPlaylistAction(t("Clear On-The-Go?"), t("Clear"), () -> {
+                    try {
+                        com.themoon.y1.managers.M3uPlaylist pl = loadPlaylist(m3u);
+                        pl.clear();
+                        pl.save();
+                        Toast.makeText(this, t("On-The-Go cleared."), Toast.LENGTH_SHORT).show();
+                    } catch (Exception e) {
+                        Toast.makeText(this, t("Couldn't save the playlist."), Toast.LENGTH_SHORT).show();
+                    }
+                });
+            });
+        } else if (m3u != null) {
+            addQueueMenuRow(layout, wheel, t("Rename"), v -> {
+                dialog.dismiss();
+                askPlaylistName(6, null, m3u);
+            });
+            addQueueMenuRow(layout, wheel, t("Delete Playlist"), v -> {
+                dialog.dismiss();
+                confirmPlaylistAction(String.format(t("Delete \"%s\"? The songs stay on the card."),
+                        com.themoon.y1.managers.M3uPlaylist.displayName(m3u)), t("Delete"), () -> {
+                    boolean ok = m3u.delete();
+                    android.util.Log.i("Y1Playlist", "Delete " + m3u.getName() + ": " + ok);
+                    Toast.makeText(this, ok ? t("Playlist deleted.") : t("Couldn't delete the playlist."),
+                            Toast.LENGTH_SHORT).show();
+                    buildM3uPlaylistUI();
+                });
+            });
+        } else if (smart != null) {
+            addQueueMenuRow(layout, wheel, t("Delete Playlist"), v -> {
+                dialog.dismiss();
+                confirmPlaylistAction(String.format(t("Delete \"%s\"? The songs stay on the card."), smart.name),
+                        t("Delete"), () -> {
+                            boolean ok = smart.file.delete();
+                            android.util.Log.i("Y1Playlist", "Delete smart " + smart.file.getName() + ": " + ok);
+                            Toast.makeText(this, ok ? t("Playlist deleted.") : t("Couldn't delete the playlist."),
+                                    Toast.LENGTH_SHORT).show();
+                            buildM3uPlaylistUI();
+                        });
+            });
+        }
+        addQueueMenuRow(layout, wheel, t("New Playlist"), v -> {
+            dialog.dismiss();
+            askPlaylistName(5, null, null);
+        });
+        addQueueMenuRow(layout, wheel, t("Cancel"), v -> dialog.dismiss());
+
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
+            }
+        }, 50);
+    }
+
+    // A yes/no question with the wheel: "Cancel" first, so a stray click doesn't delete anything.
+    private void confirmPlaylistAction(String question, String yesLabel, final Runnable onYes) {
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
+
+        TextView tvQuestion = new TextView(this);
+        tvQuestion.setText(question);
+        tvQuestion.setTextColor(0xFF000000);
+        tvQuestion.setTextSize(16);
+        tvQuestion.setTypeface(ThemeManager.getCustomFontBold());
+        float d = getResources().getDisplayMetrics().density;
+        tvQuestion.setPadding((int) (10 * d), (int) (10 * d), (int) (10 * d), (int) (8 * d));
+        layout.addView(tvQuestion);
+        addQueueMenuRow(layout, wheel, t("Cancel"), v -> dialog.dismiss());
+        addQueueMenuRow(layout, wheel, yesLabel, v -> {
+            dialog.dismiss();
+            onYes.run();
+        });
+
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 1) layout.getChildAt(1).requestFocus();
             }
         }, 50);
     }
