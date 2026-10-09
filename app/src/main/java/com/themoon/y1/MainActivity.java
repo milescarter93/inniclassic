@@ -7268,6 +7268,17 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnBrightMenu);
 
+        // 🚀 [Lyrics] Automatic download and "download all" from LRCLIB.
+        LinearLayout btnLyricsMenu = createSettingRow("Lyrics", "〉 ");
+        btnLyricsMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildLyricsSettingsUI();
+            }
+        });
+        containerSettingsItems.addView(btnLyricsMenu);
+
         // 🚀 [Battery] Level, charge state, estimated time left and the status bar percentage option.
         LinearLayout btnBatteryMenu = createSettingRow("Battery",
                 (batteryLevelPct >= 0 ? batteryLevelPct + "% " : "") + "〉 ");
@@ -12487,15 +12498,27 @@ public class MainActivity extends Activity {
                         }
                     }
                     br.close();
-                    lyricTimestamps = new ArrayList<>(currentLyrics.keySet());
-                    return; // 성공했으면 여기서 엔진 조기 종료!
+                    if (!currentLyrics.isEmpty()) {
+                        lyricTimestamps = new ArrayList<>(currentLyrics.keySet());
+                        return; // 성공했으면 여기서 엔진 조기 종료!
+                    }
+                    // 🚀 [Lyrics] An .lrc without timestamps (plain lyrics from LRCLIB): show it as text.
+                    StringBuilder text = new StringBuilder();
+                    java.io.BufferedReader plain = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(new java.io.FileInputStream(lrcFile), "UTF-8"));
+                    String l;
+                    while ((l = plain.readLine()) != null) text.append(l).append('\n');
+                    plain.close();
+                    if (text.toString().trim().length() > 0) plainLyrics = text.toString().trim();
                 } catch (Exception e) {
                 }
             }
         }
 
         // 2. 외부 .lrc 파일이 없다면 파일 내부에 박혀있는 가사 자체 채굴!
-        if (path.toLowerCase().endsWith(".m4a") || path.toLowerCase().endsWith(".alac")) {
+        if (plainLyrics != null) {
+            // already have the plain text from the .lrc
+        } else if (path.toLowerCase().endsWith(".m4a") || path.toLowerCase().endsWith(".alac")) {
             Object[] alacTags = com.themoon.y1.managers.AudioPlayerManager.getInstance().extractAlacMetadata(audioFile);
             if (alacTags.length > 7 && alacTags[7] != null) {
                 plainLyrics = (String) alacTags[7];
@@ -12801,6 +12824,251 @@ public class MainActivity extends Activity {
     private int batteryTempTenths = Integer.MIN_VALUE;
     private TextView[] batteryValueViews; // value column of the Battery screen while it's shown
 
+    // =======================================================
+    // 🚀 [Lyrics] Synced lyrics from LRCLIB (managers/LyricsFetcher), saved as .lrc next to each song.
+    // - Automatic: a song with no lyrics that starts playing while on Wi-Fi gets them in the background.
+    // - Settings > Lyrics > Download All Lyrics: the whole library in the background (one request a
+    //   second, pausing when LRCLIB is busy, stopping when Wi-Fi drops), with progress; again to stop.
+    // =======================================================
+    private volatile boolean lyricsBulkRunning;
+    private volatile int lyricsBulkDone, lyricsBulkTotal, lyricsBulkFound;
+    private String lyricsFetchingPath; // automatic fetch in progress
+    private TextView lyricsBulkValue, lyricsCountValue;
+
+    private boolean isOnWifi() {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+            return ni != null && ni.isConnected() && ni.getType() == android.net.ConnectivityManager.TYPE_WIFI;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isLyricsAutoOn() {
+        return prefs.getBoolean("lyrics_auto", true);
+    }
+
+    private SongItem librarySongFor(File f) {
+        for (SongItem s : customLibrary) if (s.file.equals(f)) return s;
+        return null;
+    }
+
+    private static long fileDurationMs(File f) {
+        try {
+            android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+            java.io.FileInputStream fis = new java.io.FileInputStream(f);
+            try {
+                mmr.setDataSource(fis.getFD());
+                String d = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+                return d != null ? Long.parseLong(d) : 0;
+            } finally {
+                fis.close();
+                mmr.release();
+            }
+        } catch (Throwable e) {
+            return 0;
+        }
+    }
+
+    private void maybeFetchLyrics(final File song) {
+        if (song == null || !isLyricsAutoOn() || !currentLyrics.isEmpty() || plainLyrics != null) return;
+        final String path = song.getAbsolutePath();
+        if (!path.contains("/Music") || path.equals(lyricsFetchingPath) || !isOnWifi()) return;
+        if (com.themoon.y1.managers.LyricsFetcher.lrcFileFor(song).exists()
+                || com.themoon.y1.managers.LyricsFetcher.recentlyMissing(this, song)) return;
+        final SongItem item = librarySongFor(song);
+        if (item == null) return;
+        lyricsFetchingPath = path;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int r = 0;
+                try {
+                    r = com.themoon.y1.managers.LyricsFetcher.fetch(MainActivity.this, song, item.title,
+                            item.artist, item.albumTag != null ? item.albumTag : item.album, fileDurationMs(song));
+                } catch (Exception e) {
+                    android.util.Log.w("Y1Lyrics", "Automatic fetch failed: " + e);
+                }
+                final boolean found = r == com.themoon.y1.managers.LyricsFetcher.FOUND;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        lyricsFetchingPath = null;
+                        if (found && path.equals(displayedPlayerPath)) {
+                            loadLyrics(song);
+                            refreshVisualizerState();
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void buildLyricsSettingsUI() {
+        currentSettingsDepth = 1;
+        containerSettingsItems.removeAllViews();
+
+        final LinearLayout rowAuto = createSettingRow("Download Lyrics Automatically", isLyricsAutoOn() ? t("ON") : t("OFF"));
+        rowAuto.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                prefs.edit().putBoolean("lyrics_auto", !isLyricsAutoOn()).commit();
+                ((TextView) rowAuto.getChildAt(1)).setText(isLyricsAutoOn() ? t("ON") : t("OFF"));
+            }
+        });
+        containerSettingsItems.addView(rowAuto);
+
+        final LinearLayout rowBulk = createSettingRow("Download All Lyrics", "");
+        lyricsBulkValue = (TextView) rowBulk.getChildAt(1);
+        rowBulk.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                if (lyricsBulkRunning) {
+                    lyricsBulkRunning = false; // the job stops after the current song
+                } else if (!isOnWifi()) {
+                    Toast.makeText(MainActivity.this, t("Connect to Wi-Fi first."), Toast.LENGTH_SHORT).show();
+                } else {
+                    startLyricsBulk();
+                }
+                refreshLyricsSettings();
+            }
+        });
+        containerSettingsItems.addView(rowBulk);
+
+        LinearLayout rowCount = createSettingRow("Songs with Lyrics", "…");
+        lyricsCountValue = (TextView) rowCount.getChildAt(1);
+        containerSettingsItems.addView(rowCount);
+        refreshLyricsSettings();
+        // Counting the .lrc files reads the folders: in the background.
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<SongItem> lib = new ArrayList<>(customLibrary);
+                int with = 0;
+                java.util.HashSet<String> lrcs = new java.util.HashSet<>();
+                java.util.HashSet<File> dirs = new java.util.HashSet<>();
+                for (SongItem s : lib) dirs.add(s.file.getParentFile());
+                for (File d : dirs) {
+                    String[] names = d.list();
+                    if (names != null) for (String n : names) if (n.toLowerCase(Locale.ROOT).endsWith(".lrc")) lrcs.add(new File(d, n).getAbsolutePath());
+                }
+                for (SongItem s : lib) if (lrcs.contains(com.themoon.y1.managers.LyricsFetcher.lrcFileFor(s.file).getAbsolutePath())) with++;
+                final String text = String.format(Locale.US, t("%1$d of %2$d"), with, lib.size());
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (lyricsCountValue != null) lyricsCountValue.setText(text);
+                    }
+                });
+            }
+        }).start();
+
+        if (containerSettingsItems.getChildCount() > 0)
+            containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    private void refreshLyricsSettings() {
+        if (lyricsBulkValue == null) return;
+        if (lyricsBulkRunning)
+            lyricsBulkValue.setText(String.format(Locale.US, t("Stop (%1$d/%2$d)"), lyricsBulkDone, lyricsBulkTotal));
+        else if (lyricsBulkTotal > 0)
+            lyricsBulkValue.setText(String.format(Locale.US, t("%d found"), lyricsBulkFound));
+        else
+            lyricsBulkValue.setText(t("Start"));
+    }
+
+    private void startLyricsBulk() {
+        final List<SongItem> songs = new ArrayList<>();
+        for (SongItem s : customLibrary) if (s.file.getAbsolutePath().contains("/Music")) songs.add(s);
+        lyricsBulkRunning = true;
+        lyricsBulkDone = 0;
+        lyricsBulkFound = 0;
+        lyricsBulkTotal = songs.size();
+        android.util.Log.i("Y1Lyrics", "Download all: " + songs.size() + " songs");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                PowerManager.WakeLock wake = null;
+                WifiManager.WifiLock wifi = null;
+                try {
+                    wake = ((PowerManager) getSystemService(Context.POWER_SERVICE))
+                            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "InniClassic:lyrics");
+                    wake.acquire();
+                    wifi = ((WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE))
+                            .createWifiLock(WifiManager.WIFI_MODE_FULL, "InniClassic:lyrics");
+                    wifi.acquire();
+                } catch (Exception ignored) {
+                }
+                int busy = 0;
+                String stopReason = "done";
+                for (int i = 0; i < songs.size() && lyricsBulkRunning; i++) {
+                    SongItem s = songs.get(i);
+                    lyricsBulkDone = i + 1;
+                    if (lyricsBulkDone % 10 == 0) runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            refreshLyricsSettings();
+                        }
+                    });
+                    if (com.themoon.y1.managers.LyricsFetcher.lrcFileFor(s.file).exists()
+                            || com.themoon.y1.managers.LyricsFetcher.recentlyMissing(MainActivity.this, s.file)) continue;
+                    if (!isOnWifi()) {
+                        stopReason = "no Wi-Fi";
+                        break;
+                    }
+                    try {
+                        int r = com.themoon.y1.managers.LyricsFetcher.fetch(MainActivity.this, s.file, s.title, s.artist,
+                                s.albumTag != null ? s.albumTag : s.album, fileDurationMs(s.file));
+                        if (r == com.themoon.y1.managers.LyricsFetcher.FOUND) lyricsBulkFound++;
+                        busy = 0;
+                        Thread.sleep(1000); // be gentle with a free service
+                    } catch (com.themoon.y1.managers.LyricsFetcher.BusyException e) {
+                        if (++busy > 5) {
+                            stopReason = "LRCLIB busy";
+                            break;
+                        }
+                        i--; // same song again after a pause
+                        try {
+                            Thread.sleep(30000L * busy);
+                        } catch (InterruptedException ignored) {
+                        }
+                    } catch (Exception e) {
+                        android.util.Log.w("Y1Lyrics", "Skipped " + s.file.getName() + ": " + e);
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException ignored) {
+                        }
+                    }
+                }
+                if (!lyricsBulkRunning) stopReason = "stopped";
+                lyricsBulkRunning = false;
+                try {
+                    if (wake != null) wake.release();
+                    if (wifi != null) wifi.release();
+                } catch (Exception ignored) {
+                }
+                final String reason = stopReason;
+                android.util.Log.i("Y1Lyrics", "Download all finished (" + reason + "): " + lyricsBulkFound + " found, "
+                        + lyricsBulkDone + "/" + lyricsBulkTotal + " checked");
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        refreshLyricsSettings();
+                        Toast.makeText(MainActivity.this, String.format(Locale.US, t("Lyrics: %d songs got lyrics."),
+                                lyricsBulkFound), Toast.LENGTH_LONG).show();
+                        if (displayedPlayerPath != null && currentLyrics.isEmpty() && plainLyrics == null) {
+                            loadLyrics(new File(displayedPlayerPath));
+                            refreshVisualizerState();
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
     private void buildBatteryUI() {
         currentSettingsDepth = 1;
         containerSettingsItems.removeAllViews();
@@ -13070,6 +13338,7 @@ public class MainActivity extends Activity {
                     displayedPlayerPath = currentFile.getAbsolutePath();
                     // 🚀 곡이 바뀔 때마다 같은 이름의 .lrc 파일이 있는지 탐색합니다!
                     loadLyrics(currentFile);
+                    maybeFetchLyrics(currentFile); // 🚀 [Lyrics] none on the card: try LRCLIB (Wi-Fi only)
                     refreshVisualizerState();
                     updateRatingDisplay();
                     // 🚀 [iPod 스타일] 새 곡이 시작되면 항상 기본 Progress 바 상태로 리셋!

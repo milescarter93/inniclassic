@@ -624,5 +624,13 @@
   "Only MP3 tags can be edited. Other frames (cover, lyrics) are kept.": "Solo se pueden editar las etiquetas de los MP3. El resto (carátula, letras) se conserva.",
   "Save": "Guardar",
   "Delete Song": "Borrar canción",
-  "To add songs, open one in the Songs tab and press \"Add to Playlist\".": "Para añadir canciones, abre una en la pestaña Canciones y pulsa «Añadir a una lista»."
+  "To add songs, open one in the Songs tab and press \"Add to Playlist\".": "Para añadir canciones, abre una en la pestaña Canciones y pulsa «Añadir a una lista».",
+  "Lyrics": "Letras",
+  "Download Lyrics Automatically": "Descargar letras automáticamente",
+  "Download All Lyrics": "Descargar todas las letras",
+  "Songs with Lyrics": "Canciones con letra",
+  "Connect to Wi-Fi first.": "Conéctate antes a una red Wi-Fi.",
+  "Stop (%1$d/%2$d)": "Detener (%1$d/%2$d)",
+  "%d found": "%d encontradas",
+  "Lyrics: %d songs got lyrics.": "Letras: %d canciones tienen letra nueva."
 }
