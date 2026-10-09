@@ -69,6 +69,15 @@ public class Y1WebServer extends Thread {
         try { if (serverSocket != null) serverSocket.close(); } catch(Exception e){}
     }
 
+    // 📚 A change under Music or Audiobooks: the app rescans its library a few seconds after the last one
+    // (it used to wait until the server was stopped).
+    private static void libraryFileChanged(File f) {
+        String path = f.getAbsolutePath();
+        MainActivity main = MainActivity.instance;
+        if (main != null && (path.startsWith("/storage/sdcard0/Music") || path.startsWith("/storage/sdcard0/Audiobooks")))
+            main.requestLibraryRescanSoon();
+    }
+
     private static String tr(String text) {
         MainActivity main = MainActivity.instance;
         return main != null ? main.t(text) : text;
@@ -505,6 +514,7 @@ public class Y1WebServer extends Thread {
                     if (targetFile.equals(rootFolder.getCanonicalFile())) throw new java.io.IOException("Cannot delete root");
                     if (targetFile.exists()) {
                         deleteFileOrFolder(targetFile);
+                        libraryFileChanged(targetFile);
                     }
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
@@ -528,6 +538,7 @@ public class Y1WebServer extends Thread {
                     if (!oldFile.exists() || newFile.exists()) throw new java.io.IOException("Invalid rename");
                     if (oldFile.exists() && !newFile.exists()) {
                         if (!oldFile.renameTo(newFile)) throw new java.io.IOException("Cannot rename file");
+                        libraryFileChanged(newFile);
                     }
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
@@ -587,6 +598,7 @@ public class Y1WebServer extends Thread {
                     File outFile = SafeFiles.child(targetDir, name);
 
                     SafeFiles.replace(outFile, is, contentLength);
+                    libraryFileChanged(outFile); // 📚 new songs show up without stopping the server
 
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
