@@ -69,6 +69,11 @@ public class Y1WebServer extends Thread {
         try { if (serverSocket != null) serverSocket.close(); } catch(Exception e){}
     }
 
+    private static String tr(String text) {
+        MainActivity main = MainActivity.instance;
+        return main != null ? main.t(text) : text;
+    }
+
     public String getLocalIpAddress() {
         try {
             WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
@@ -109,7 +114,11 @@ public class Y1WebServer extends Thread {
         }
 
         private String readBody(InputStream is, int contentLength) throws java.io.IOException {
-            if (contentLength < 0 || contentLength > 65536) throw new java.io.IOException("Body too large");
+            return readBody(is, contentLength, 65536);
+        }
+
+        private String readBody(InputStream is, int contentLength, int max) throws java.io.IOException {
+            if (contentLength < 0 || contentLength > max) throw new java.io.IOException("Body too large");
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             byte[] buffer = new byte[8192];
             int totalRead = 0, bytesRead;
@@ -130,6 +139,13 @@ public class Y1WebServer extends Thread {
                 }
             }
             return "";
+        }
+
+        // One query-string parameter of the request path, decoded ("" if missing).
+        private String query(String path, String key) throws java.io.IOException {
+            int q = path.indexOf('?');
+            if (q < 0) return "";
+            return formParam(path.substring(q + 1), key);
         }
 
         private void writeJson(OutputStream os, String json) throws java.io.IOException {
@@ -210,7 +226,8 @@ public class Y1WebServer extends Thread {
                             "</style></head><body>" +
 
                             "<h2 style='color:#E0E0E0; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager " +
-                            "<a href='/lastfm' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>🎧 Last.fm Settings</a></h2>" +
+                            "<a href='/lastfm' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>🎧 Last.fm Settings</a> " +
+                            "<a href='/library' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>📚 " + tr("Library & Playlists") + "</a></h2>" +
 
                             // 업로드/폴더생성 박스
                             "<div class='box' id='uploadBox'>" +
@@ -385,6 +402,59 @@ public class Y1WebServer extends Thread {
 
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
                 }
+                // 📚 [Library web] Library & playlists page and its API (see LibraryWeb).
+                else if (method.equals("GET") && (path.equals("/library") || path.startsWith("/library?"))) {
+                    byte[] page = LibraryWeb.page(context).getBytes("UTF-8");
+                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: " + page.length + "\r\n\r\n").getBytes("UTF-8"));
+                    os.write(page);
+                }
+                else if (method.equals("GET") && path.equals("/api/library")) {
+                    writeJson(os, LibraryWeb.songsJson(rootFolder));
+                }
+                else if (method.equals("GET") && path.startsWith("/api/art?")) {
+                    byte[] art = LibraryWeb.art(SafeFiles.resolve(rootFolder, query(path, "path")));
+                    if (art == null) {
+                        os.write("HTTP/1.1 404 Not Found\r\n\r\n".getBytes("UTF-8"));
+                    } else {
+                        os.write(("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nCache-Control: no-cache\r\nContent-Length: " + art.length + "\r\n\r\n").getBytes("UTF-8"));
+                        os.write(art);
+                    }
+                }
+                else if (method.equals("POST") && path.startsWith("/api/tags?")) {
+                    File song = SafeFiles.resolve(rootFolder, query(path, "path"));
+                    String body = readBody(is, contentLength);
+                    java.util.Map<String, String> values = new java.util.HashMap<>();
+                    for (String key : new String[] { "title", "artist", "album", "albumArtist", "year", "genre", "track" }) {
+                        if (body.contains(key + "=")) values.put(key, formParam(body, key));
+                    }
+                    writeJson(os, LibraryWeb.saveTags(song, values));
+                }
+                else if (method.equals("POST") && path.startsWith("/api/cover?")) {
+                    File song = SafeFiles.resolve(rootFolder, query(path, "path"));
+                    if (contentLength <= 0 || contentLength > 12 * 1024 * 1024) throw new java.io.IOException("Image too large");
+                    byte[] img = new byte[contentLength];
+                    int read = 0, n;
+                    while (read < contentLength && (n = is.read(img, read, contentLength - read)) > 0) read += n;
+                    if (read != contentLength) throw new java.io.EOFException("Incomplete image");
+                    writeJson(os, LibraryWeb.saveAlbumCover(song, img));
+                }
+                else if (method.equals("POST") && path.startsWith("/api/deletesong?")) {
+                    writeJson(os, LibraryWeb.deleteSong(SafeFiles.resolve(rootFolder, query(path, "path"))));
+                }
+                else if (method.equals("GET") && path.equals("/api/playlists")) {
+                    writeJson(os, LibraryWeb.playlistsJson());
+                }
+                else if (method.equals("GET") && path.startsWith("/api/playlist?")) {
+                    writeJson(os, LibraryWeb.playlistJson(rootFolder, query(path, "name")));
+                }
+                else if (method.equals("POST") && path.startsWith("/api/playlist/save?")) {
+                    String body = readBody(is, contentLength, 1024 * 1024);
+                    writeJson(os, LibraryWeb.savePlaylist(rootFolder, query(path, "name"), body));
+                }
+                else if (method.equals("POST") && path.startsWith("/api/playlist/delete?")) {
+                    writeJson(os, LibraryWeb.deletePlaylist(query(path, "name")));
+                }
+
                 // 2️⃣ [API] 파일 및 폴더 리스트 응답 (JSON 형식)
                 else if (method.equals("GET") && path.startsWith("/api/list")) {
                     String q = path.contains("?") ? path.split("\\?")[1] : "";

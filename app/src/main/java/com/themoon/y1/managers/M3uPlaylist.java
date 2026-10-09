@@ -195,6 +195,14 @@ public final class M3uPlaylist {
         }
     }
 
+    // For the library web page: each entry as {line as written, resolved absolute path, "1" if playable}.
+    public List<String[]> entryInfo() {
+        List<String[]> out = new ArrayList<>();
+        for (Entry e : entries)
+            out.add(new String[] { e.line.trim(), e.target != null ? e.target.getAbsolutePath() : "", e.playable ? "1" : "0" });
+        return out;
+    }
+
     public int missingCount() {
         int n = 0;
         for (Entry e : entries) if (!e.playable) n++;

@@ -3396,6 +3396,26 @@ public class MainActivity extends Activity {
     }
 
     // 3. 중앙 스캔 엔진 (초고속 부분 스캔 / 양방향 동기화 적용!)
+    // 📚 [Library web] Edits from the web page: rescan in the background once they stop for a few seconds
+    // (a scan already running would miss files changed after it passed them, so wait for it to end).
+    private final Runnable webRescan = new Runnable() {
+        @Override
+        public void run() {
+            if (isCustomScanning) {
+                rescanHandler.postDelayed(this, 5000);
+                return;
+            }
+            android.util.Log.i("Y1Library", "Rescan after web edits");
+            startMediaLibraryScan();
+        }
+    };
+    private final Handler rescanHandler = new Handler(android.os.Looper.getMainLooper());
+
+    public void requestLibraryRescanSoon() {
+        rescanHandler.removeCallbacks(webRescan);
+        rescanHandler.postDelayed(webRescan, 5000);
+    }
+
     private void startMediaLibraryScan() {
         if (isCustomScanning)
             return;

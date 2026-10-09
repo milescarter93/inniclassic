@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{Library & Playlists}}</title>
+<style>
+  body{font-family:'Roboto','Segoe UI',sans-serif;background:#1E1E24;color:#E0E0E0;margin:0 auto;max-width:980px;padding:20px 16px 80px}
+  h2{font-weight:600;margin:4px 0 14px}
+  a{color:#B39DDB;text-decoration:none}
+  input,select,button{font-size:14px;padding:9px 14px;border-radius:12px;border:none;outline:none}
+  input,select{background:#2A2A35;color:#E0E0E0}
+  button{background:#B39DDB;color:#121212;font-weight:600;cursor:pointer}
+  button:hover{background:#9575CD}
+  button.alt{background:#383848;color:#B39DDB}
+  button.alt:hover{background:#454555}
+  button.danger{background:#424250;color:#E57373}
+  button.danger:hover{background:#EF5350;color:#fff}
+  button:disabled{opacity:.5;cursor:default}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tabs button{background:#2A2A35;color:#B39DDB}
+  .tabs button.on{background:#B39DDB;color:#121212}
+  .box{background:#252530;padding:16px;border-radius:16px;margin:0 0 14px;box-shadow:0 4px 6px rgba(0,0,0,.3)}
+  .row{display:flex;gap:10px;align-items:center;padding:9px 10px;border-bottom:1px solid #333340;cursor:pointer}
+  .row:hover{background:#2D2D3A;border-radius:8px}
+  .row.sel{background:#3A3550;border-radius:8px}
+  .row .main{flex:1;min-width:0}
+  .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+  .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#9A9AAA;font-size:13px}
+  .missing .t{color:#E57373}
+  .grid{display:grid;grid-template-columns:120px 1fr;gap:8px 12px;align-items:center}
+  .grid input{width:100%;box-sizing:border-box}
+  .cover{width:140px;height:140px;object-fit:cover;border-radius:10px;background:#1A1A20}
+  .split{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  .split > div{flex:1;min-width:260px}
+  .note{color:#9A9AAA;font-size:13px}
+  #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#383848;color:#fff;padding:10px 18px;border-radius:20px;display:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+  .mini{padding:5px 10px;border-radius:10px;font-size:13px}
+</style>
+</head>
+<body>
+<div id="i18n" hidden
+  data-saved="{{Saved. The Y1 will update its library in a few seconds.}}"
+  data-error="{{Error}}"
+  data-delete-song="{{Delete this song from the card? This can't be undone.}}"
+  data-deleted="{{Song deleted.}}"
+  data-cover-done="{{Cover set on %d songs.}}"
+  data-showing="{{Showing %1$d of %2$d songs. Refine the search to see more.}}"
+  data-songs="{{%d songs}}"
+  data-new-name="{{Name of the new playlist:}}"
+  data-delete-list="{{Delete this playlist? The songs stay on the card.}}"
+  data-list-saved="{{Playlist saved.}}"
+  data-added="{{Added to the playlist (remember to save it).}}"
+  data-pick-list="{{Choose a playlist in the Playlists tab first.}}"
+  data-unsaved="{{There are unsaved changes in the playlist.}}"
+  data-missing="{{not found}}"></div>
+
+<h2>📚 {{Library & Playlists}} <a href="/" style="font-size:14px;margin-left:10px">📁 {{Files}}</a></h2>
+<div class="tabs">
+  <button id="tabSongs" class="on" onclick="showTab('songs')">{{Songs}}</button>
+  <button id="tabLists" onclick="showTab('lists')">{{Playlists}}</button>
+</div>
+
+<div id="songsView">
+  <div class="box">
+    <input id="q" type="text" placeholder="{{Search by title, artist or album...}}" style="width:100%;box-sizing:border-box" oninput="renderSongs()">
+    <div class="note" id="songCount" style="margin-top:8px"></div>
+  </div>
+  <div class="split">
+    <div class="box" id="songList" style="max-height:70vh;overflow:auto;padding:8px"></div>
+    <div class="box" id="editor" style="display:none">
+      <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:12px">
+        <img id="cover" class="cover" alt="">
+        <div style="flex:1;min-width:0">
+          <div class="t" id="edTitle" style="font-size:17px"></div>
+          <div class="s" id="edPath"></div>
+          <label class="note" style="display:block;margin-top:10px">{{Album cover (for the whole album):}}</label>
+          <input type="file" id="coverFile" accept="image/*" style="width:100%;box-sizing:border-box;margin-top:4px">
+          <button class="alt mini" style="margin-top:6px" onclick="uploadCover()">{{Set Cover}}</button>
+        </div>
+      </div>
+      <div class="grid">
+        <label>{{Title}}</label><input id="f_title">
+        <label>{{Artist}}</label><input id="f_artist">
+        <label>{{Album}}</label><input id="f_album">
+        <label>{{Album Artist}}</label><input id="f_albumArtist">
+        <label>{{Year}}</label><input id="f_year">
+        <label>{{Genre}}</label><input id="f_genre">
+        <label>{{Track}}</label><input id="f_track">
+      </div>
+      <p class="note">{{Only MP3 tags can be edited. Other frames (cover, lyrics) are kept.}}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="saveTags()">{{Save}}</button>
+        <button class="alt" onclick="addToList()">➕ {{Add to Playlist}}</button>
+        <button class="danger" onclick="deleteSong()">{{Delete Song}}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="listsView" style="display:none">
+  <div class="box" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <select id="listSel" onchange="openList(this.value)"></select>
+    <button class="alt" onclick="newList()">{{New Playlist}}</button>
+    <button onclick="saveList()">{{Save}}</button>
+    <button class="danger" onclick="deleteList()">{{Delete Playlist}}</button>
+    <span class="note" id="listInfo"></span>
+  </div>
+  <p class="note">{{To add songs, open one in the Songs tab and press "Add to Playlist".}}</p>
+  <div class="box" id="listRows" style="padding:8px"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const T = document.getElementById('i18n').dataset;
+let songs = [], current = null, lists = [], listName = '', listItems = [], listDirty = false;
+const MAX_ROWS = 300;
+
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(toast.h); toast.h=setTimeout(()=>t.style.display='none',3500); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fold(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+function fmt(s){ const a=[...arguments].slice(1); let i=0; return s.replace(/%(\d)\$d|%d/g,(m,n)=>a[n?n-1:i++]); }
+async function post(url, body){ const r = await fetch(url,{method:'POST',body:body}); return r.json(); }
+
+function showTab(which){
+  document.getElementById('songsView').style.display = which==='songs'?'':'none';
+  document.getElementById('listsView').style.display = which==='lists'?'':'none';
+  document.getElementById('tabSongs').classList.toggle('on', which==='songs');
+  document.getElementById('tabLists').classList.toggle('on', which==='lists');
+}
+
+async function loadSongs(){
+  songs = await (await fetch('/api/library')).json();
+  songs.sort((x,y)=> fold(x.a).localeCompare(fold(y.a)) || fold(x.al).localeCompare(fold(y.al)) || (parseInt(x.n)||0)-(parseInt(y.n)||0) || fold(x.t).localeCompare(fold(y.t)));
+  renderSongs();
+}
+
+function renderSongs(){
+  const q = fold(document.getElementById('q').value.trim());
+  const hits = q ? songs.filter(s => fold(s.t+' '+s.a+' '+s.al).includes(q)) : songs;
+  const shown = hits.slice(0, MAX_ROWS);
+  document.getElementById('songCount').textContent = hits.length > MAX_ROWS ? fmt(T.showing, MAX_ROWS, hits.length) : fmt(T.songs, hits.length);
+  document.getElementById('songList').innerHTML = shown.map(s =>
+    `<div class="row${current&&current.p===s.p?' sel':''}" data-p="${esc(s.p)}"><div class="main"><div class="t">${esc(s.t)}</div><div class="s">${esc(s.a)}${s.al?' · '+esc(s.al):''}${s.y?' · '+esc(s.y):''}</div></div></div>`).join('');
+  document.querySelectorAll('#songList .row').forEach(r => r.onclick = () => openSong(r.dataset.p));
+}
+
+function openSong(p){
+  current = songs.find(s => s.p === p); if(!current) return;
+  document.getElementById('editor').style.display='';
+  document.getElementById('edTitle').textContent = current.t;
+  document.getElementById('edPath').textContent = current.p;
+  document.getElementById('cover').src = '/api/art?path=' + encodeURIComponent(p) + '&t=' + Date.now();
+  const map = {title:'t',artist:'a',album:'al',albumArtist:'aa',year:'y',genre:'g',track:'n'};
+  for (const k in map) document.getElementById('f_'+k).value = current[map[k]] || '';
+  renderSongs();
+}
+
+async function saveTags(){
+  if(!current) return;
+  const body = new URLSearchParams();
+  for (const k of ['title','artist','album','albumArtist','year','genre','track']) body.append(k, document.getElementById('f_'+k).value);
+  const r = await post('/api/tags?path='+encodeURIComponent(current.p), body);
+  if (r.ok) {
+    Object.assign(current, {t:body.get('title'),a:body.get('artist'),al:body.get('album'),aa:body.get('albumArtist'),y:body.get('year'),g:body.get('genre'),n:body.get('track')});
+    document.getElementById('edTitle').textContent = current.t; renderSongs(); toast(T.saved);
+  } else toast(T.error + ': ' + (r.error||''));
+}
+
+async function uploadCover(){
+  const f = document.getElementById('coverFile').files[0];
+  if(!current || !f) return;
+  const r = await post('/api/cover?path='+encodeURIComponent(current.p), f);
+  if (r.ok) { toast(fmt(T.coverDone, r.count)); document.getElementById('cover').src = '/api/art?path=' + encodeURIComponent(current.p) + '&t=' + Date.now(); }
+  else toast(T.error + ': ' + (r.error||''));
+}
+
+async function deleteSong(){
+  if(!current || !confirm(T.deleteSong)) return;
+  const r = await post('/api/deletesong?path='+encodeURIComponent(current.p), '');
+  if (r.ok) { songs = songs.filter(s => s !== current); current = null; document.getElementById('editor').style.display='none'; renderSongs(); toast(T.deleted); }
+  else toast(T.error + ': ' + (r.error||''));
+}
+
+// ---------- playlists ----------
+async function loadLists(select){
+  lists = await (await fetch('/api/playlists')).json();
+  const sel = document.getElementById('listSel');
+  sel.innerHTML = lists.map(l => `<option value="${esc(l.name)}">${esc(l.name)}</option>`).join('');
+  const pick = select || listName || (lists[0] && lists[0].name) || '';
+  if (pick) { sel.value = pick; await openList(pick); } else { listItems = []; renderList(); }
+}
+
+async function openList(name){
+  if (listDirty && name !== listName && !confirm(T.unsaved)) { document.getElementById('listSel').value = listName; return; }
+  listName = name; listDirty = false;
+  listItems = name ? await (await fetch('/api/playlist?name='+encodeURIComponent(name))).json() : [];
+  renderList();
+}
+
+function renderList(){
+  document.getElementById('listInfo').textContent = listName ? fmt(T.songs, listItems.length) + (listDirty ? ' *' : '') : '';
+  document.getElementById('listRows').innerHTML = listItems.map((it,i) =>
+    `<div class="row${it.ok?'':' missing'}"><div class="main"><div class="t">${i+1}. ${esc(it.t)}</div><div class="s">${it.ok?esc(it.a):T.missing+' · '+esc(it.p)}</div></div>
+     <button class="alt mini" onclick="moveItem(${i},-1)" ${i===0?'disabled':''}>▲</button>
+     <button class="alt mini" onclick="moveItem(${i},1)" ${i===listItems.length-1?'disabled':''}>▼</button>
+     <button class="danger mini" onclick="removeItem(${i})">✕</button></div>`).join('');
+}
+function moveItem(i,d){ const j=i+d; [listItems[i],listItems[j]]=[listItems[j],listItems[i]]; listDirty=true; renderList(); }
+function removeItem(i){ listItems.splice(i,1); listDirty=true; renderList(); }
+
+function addToList(){
+  if(!current) return;
+  if(!listName){ toast(T.pickList); return; }
+  listItems.push({p:current.p,t:current.t,a:current.a,ok:true}); listDirty=true; renderList(); toast(T.added + ' → ' + listName);
+}
+
+async function newList(){
+  const name = prompt(T.newName); if(!name) return;
+  const r = await post('/api/playlist/save?name='+encodeURIComponent(name.trim()), '');
+  if (r.ok) { listDirty=false; await loadLists(name.trim()); toast(T.listSaved); } else toast(T.error + ': ' + (r.error||''));
+}
+
+async function saveList(){
+  if(!listName) return;
+  const r = await post('/api/playlist/save?name='+encodeURIComponent(listName), listItems.map(it => it.p).join('\n'));
+  if (r.ok) { listDirty=false; renderList(); toast(T.listSaved); } else toast(T.error + ': ' + (r.error||''));
+}
+
+async function deleteList(){
+  if(!listName || !confirm(T.deleteList)) return;
+  const r = await post('/api/playlist/delete?name='+encodeURIComponent(listName), '');
+  if (r.ok) { listName=''; listDirty=false; await loadLists(); } else toast(T.error + ': ' + (r.error||''));
+}
+
+window.onbeforeunload = () => listDirty ? T.unsaved : undefined;
+loadSongs(); loadLists();
+</script>
+</body>
+</html>
