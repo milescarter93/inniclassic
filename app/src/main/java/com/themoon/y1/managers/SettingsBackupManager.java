@@ -33,6 +33,8 @@ public class SettingsBackupManager {
     private static final Set<String> TRANSIENT_KEYS = new HashSet<>();
     static {
         TRANSIENT_KEYS.add("reboot_to_theme");
+        TRANSIENT_KEYS.add("reboot_to_settings");
+        TRANSIENT_KEYS.add("reboot_settings_focus");
         TRANSIENT_KEYS.add("last_attempted_file");
         TRANSIENT_KEYS.add("last_crash_signature"); // CrashLogger's crash-loop detection state
         TRANSIENT_KEYS.add("last_crash_time");

@@ -18,6 +18,8 @@ public final class ClassicMenuStyle {
     public static void apply(LinearLayout row, TextView title, TextView arrow, int heightDp) {
         if (!ThemeManager.isClassicTheme()) return;
         float density = row.getResources().getDisplayMetrics().density;
+        float scale = ThemeManager.textScale(); // 🚀 [Accessibility] Large Text: taller rows, bigger text
+        heightDp = Math.round(heightDp * scale);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding((int) (8 * density), 0, (int) (8 * density), 0);
         row.setMinimumHeight((int) (heightDp * density));
@@ -30,12 +32,12 @@ public final class ClassicMenuStyle {
             row.setLayoutParams(params);
         }
         title.setIncludeFontPadding(false);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_PX, 21 * density);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_PX, 21 * scale * density);
         title.setTypeface(ThemeManager.getCustomFontBold());
         if (arrow != null) {
             arrow.setText("›");
             arrow.setIncludeFontPadding(false);
-            arrow.setTextSize(TypedValue.COMPLEX_UNIT_PX, 21 * density);
+            arrow.setTextSize(TypedValue.COMPLEX_UNIT_PX, 21 * scale * density);
             arrow.setTextColor(ThemeManager.getListButtonFocusedTextColor());
             arrow.setVisibility(row.isFocused() ? View.VISIBLE : View.GONE);
         }

@@ -1920,6 +1920,8 @@ public class MainActivity extends Activity {
             isAlbumTiltEnabled = prefs.getBoolean("album_tilt_enabled", true);
             isCoverMotionEnabled = prefs.getBoolean("cover_motion_enabled", true);
             nowPlayingInfoMode = prefs.getInt("now_playing_info", 3) & 3;
+            ThemeManager.largeText = prefs.getBoolean("large_text", false); // 🚀 [Accessibility]
+            ThemeManager.highContrast = prefs.getBoolean("high_contrast", false);
         } catch (Exception e) {
         }
         // 💡 [EQ 프리셋 목록 자동 로드] 기기가 지원하는 이퀄라이저 리스트를 가져옵니다.
@@ -2349,6 +2351,11 @@ public class MainActivity extends Activity {
         tvPlayerRating = findViewById(R.id.tv_player_rating);
         tvPlayerFormat = findViewById(R.id.tv_player_format);
         tvPlayerNext = findViewById(R.id.tv_player_next);
+        if (ThemeManager.largeText) { // 🚀 [Accessibility]
+            for (TextView tv : new TextView[] { tvPlayerTitle, tvPlayerArtist, tvPlayerAlbum, tvPlayerTrackCount,
+                    tvPlayerFormat, tvPlayerNext, tvPlayerTimeCurrent, tvPlayerTimeTotal })
+                if (tv != null) tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, tv.getTextSize() * ThemeManager.textScale());
+        }
 
         ivPlayerShuffleStatus = findViewById(R.id.iv_player_shuffle_status);
         ivPlayerRepeatStatus = findViewById(R.id.iv_player_repeat_status);
@@ -2690,7 +2697,15 @@ public class MainActivity extends Activity {
 
         // 🚀 2. 테마를 바꾸고 화면이 새로고침(recreate)되었을 때, 메인 화면이 아닌 '테마 선택 리스트'로 돌아오게 만듭니다!
         boolean rebootToTheme = prefs.getBoolean("reboot_to_theme", false);
-        if (rebootToTheme) {
+        if (prefs.getBoolean("reboot_to_settings", false)) {
+            // 🚀 [Accessibility] back to the Settings row that was just toggled
+            lastSettingsFocusIndex = prefs.getInt("reboot_settings_focus", 0);
+            prefs.edit().remove("reboot_to_settings").remove("reboot_settings_focus").commit();
+            isNavigatingToSubMenu = true;
+            changeScreen(STATE_SETTINGS);
+            buildSettingsUI();
+            isNavigatingToSubMenu = false;
+        } else if (rebootToTheme) {
             prefs.edit().remove("reboot_to_theme").commit(); // 기억을 사용했으니 지웁니다.
 
             // 🚀 [버그 해결] recreate()로 인해 소멸했던 방어막 플래그를 강제로 다시 true로 세워줍니다!
@@ -4748,6 +4763,11 @@ public class MainActivity extends Activity {
 
     // 🚀 [iPod 스타일] 상태바(탑바)도 위아래 살짝 밝기가 다른 은은한 금속 광택 그라데이션으로!
     public GradientDrawable createStatusBarBackground() {
+        if (ThemeManager.highContrast) { // 🚀 [Accessibility]
+            GradientDrawable plain = new GradientDrawable();
+            plain.setColor(ThemeManager.HC_BG);
+            return plain;
+        }
         if (ThemeManager.isClassicLightTheme()) return new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xFFF7F7F7, 0xFFDADADA, 0xFFB6B6B6});
         int base = ThemeManager.getStatusBarBackgroundColor();
@@ -4765,6 +4785,12 @@ public class MainActivity extends Activity {
 
     // 🚀 [iPod 스타일] 포커스(선택) 상태의 배경을 위/아래 밝기가 다른 광택 그라데이션으로 만듭니다!
     public GradientDrawable createFocusedButtonBackground() {
+        if (ThemeManager.highContrast) { // 🚀 [Accessibility] a plain yellow bar, no gradient
+            GradientDrawable plain = new GradientDrawable();
+            plain.setColor(ThemeManager.HC_FOCUS);
+            plain.setCornerRadius(ThemeManager.isClassicTheme() ? 0 : ThemeManager.getButtonRadius() * getResources().getDisplayMetrics().density);
+            return plain;
+        }
         if (ThemeManager.isClassicTheme()) return new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xFF62B7F5, 0xFF2588DC, 0xFF0865C4});
         int base = ThemeManager.getListButtonFocusedBg();
@@ -6557,13 +6583,13 @@ public class MainActivity extends Activity {
         tvLeft.setTypeface(ThemeManager.getCustomFont(), Typeface.NORMAL);
         tvLeft.setText(t(leftText));
         tvLeft.setTextColor(ThemeManager.getTextColorPrimary());
-        tvLeft.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 20f * settingRowDensity);
+        tvLeft.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 20f * ThemeManager.textScale() * settingRowDensity);
         tvLeft.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
 
         TextView tvRight = new TextView(this);
         tvRight.setTypeface(ThemeManager.getCustomFontBold());
         tvRight.setText(rightText);
-        tvRight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 20f * settingRowDensity);
+        tvRight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 20f * ThemeManager.textScale() * settingRowDensity);
         tvRight.setTypeface(ThemeManager.getCustomFontBold());
         tvRight.setGravity(Gravity.RIGHT);
         tvRight.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -7082,6 +7108,26 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnBacklightTimer);
+        // 🚀 [Accessibility] Large Text / High Contrast: the screen is rebuilt to apply them everywhere.
+        final LinearLayout btnLargeText = createSettingRow("Large Text", ThemeManager.largeText ? t("ON") : t("OFF"));
+        btnLargeText.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                toggleAccessibility("large_text", containerSettingsItems.indexOfChild(btnLargeText));
+            }
+        });
+        containerSettingsItems.addView(btnLargeText);
+        final LinearLayout btnHighContrast = createSettingRow("High Contrast", ThemeManager.highContrast ? t("ON") : t("OFF"));
+        btnHighContrast.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                toggleAccessibility("high_contrast", containerSettingsItems.indexOfChild(btnHighContrast));
+            }
+        });
+        containerSettingsItems.addView(btnHighContrast);
+
         // 🚀 [수정된 테마 설정 버튼]
         final LinearLayout btnTheme = createSettingRow("Theme", ThemeManager.getCurrentTheme().name);
         btnTheme.setOnClickListener(new View.OnClickListener() {
@@ -11968,7 +12014,11 @@ public class MainActivity extends Activity {
                 }
             }
 
-            btn.setLayoutParams(createDynamicLayoutParams(el, density));
+            // 🚀 [Accessibility] Large Text: list rows grow with their text (free-placed tiles keep their size).
+            final boolean scaleRow = ThemeManager.largeText && el.parentId != null && !el.parentId.isEmpty();
+            ViewGroup.LayoutParams dynamicLp = createDynamicLayoutParams(el, density);
+            if (scaleRow && dynamicLp.height > 0) dynamicLp.height = Math.round(dynamicLp.height * ThemeManager.textScale());
+            btn.setLayoutParams(dynamicLp);
             // 🚀 [폰트 통일] 메뉴 어디서나 동일한 굵은 글씨체를 쓰도록 통일합니다!
             tvMain.setTypeface(ThemeManager.getCustomFontBold());
             tvRight.setTypeface(ThemeManager.getCustomFont(), Typeface.NORMAL);
@@ -11979,8 +12029,9 @@ public class MainActivity extends Activity {
                 float mainSize = el.textSize > 0 ? el.textSize : 16; // 에디터 기본값과 동일한 16px로 세팅
                 float rightSize = el.textSecondarySize > 0 ? el.textSecondarySize : mainSize; // 우측 텍스트 독립 크기 지원
 
-                tvMain.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, mainSize * density);
-                tvRight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, rightSize * density);
+                float rowScale = scaleRow ? ThemeManager.textScale() : 1f;
+                tvMain.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, mainSize * rowScale * density);
+                tvRight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, rightSize * rowScale * density);
             }
 
             LinearLayout.LayoutParams lpMain;
@@ -13194,6 +13245,15 @@ public class MainActivity extends Activity {
                 });
             }
         }).start();
+    }
+
+    // 🚀 [Accessibility] Saves the switch and rebuilds the screen (like a theme change), coming back to the
+    // same Settings row.
+    private void toggleAccessibility(String key, int rowIndex) {
+        prefs.edit().putBoolean(key, !prefs.getBoolean(key, false))
+                .putBoolean("reboot_to_settings", true)
+                .putInt("reboot_settings_focus", rowIndex).commit();
+        recreate();
     }
 
     private void buildBatteryUI() {
@@ -15530,6 +15590,8 @@ public class MainActivity extends Activity {
                     .remove("album_tilt_enabled")
                     .remove("cover_motion_enabled")
                     .remove("now_playing_info")
+                    .remove("large_text")
+                    .remove("high_contrast")
                     .remove("battery_percent")
                     .remove("backlight_timer_index")
                     .remove("screen_off_control")
@@ -15552,6 +15614,8 @@ public class MainActivity extends Activity {
         refreshCoverPanAnimations();
         nowPlayingInfoMode = 3;
         updateNowPlayingInfo();
+        ThemeManager.largeText = false;
+        ThemeManager.highContrast = false;
         isBatteryPercentOn = true;
         if (tvStatusBattery != null) tvStatusBattery.setVisibility(View.VISIBLE);
         backlightTimerIndex = 3;

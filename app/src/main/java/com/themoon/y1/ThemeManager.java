@@ -160,7 +160,7 @@ public class ThemeManager {
 
     public static int getStatusBarBackgroundColor() {
         if (availableThemes.isEmpty()) return 0x66000000;
-        return getCurrentTheme().statusBarBg;
+        return highContrast ? HC_BG : getCurrentTheme().statusBarBg;
     }
 
     public static void loadThemesFromStorage(File themeFolder) {
@@ -529,13 +529,22 @@ public class ThemeManager {
         return "iPod Classic".equals(name) || "iPod Classic (Dark)".equals(name) || "iPod Classic Dark".equals(name);
     }
     public static boolean isClassicLightTheme() { return "iPod Classic".equals(getCurrentTheme().name); }
-    public static float getListTextSize() { return isClassicTheme() ? 21f : 23f; }
+    // 🚀 [Accessibility] Settings > Large Text / High Contrast, applied over any theme (set at start-up and
+    // when toggled; the screen is then rebuilt). High contrast: white on black, the selected row yellow
+    // with black text.
+    public static boolean largeText, highContrast;
+    public static final int HC_TEXT = 0xFFFFFFFF, HC_TEXT_2 = 0xFFE6E6E6, HC_BG = 0xFF000000,
+            HC_FOCUS = 0xFFFFD60A, HC_FOCUS_TEXT = 0xFF000000;
 
-    public static int getTextColorPrimary() { return getCurrentTheme().textPrimary; }
-    public static int getTextColorSecondary() { return getCurrentTheme().textSecondary; }
-    public static int getOverlayBackgroundColor() { return getCurrentTheme().bgOverlay; }
-    public static int getListButtonNormalBg() { return getCurrentTheme().btnNormal; }
-    public static int getListButtonFocusedBg() { return getCurrentTheme().btnFocused; }
-    public static int getListButtonFocusedTextColor() { return getCurrentTheme().btnFocusedText; }
+    public static float textScale() { return largeText ? 1.3f : 1f; }
+
+    public static float getListTextSize() { return (isClassicTheme() ? 21f : 23f) * textScale(); }
+
+    public static int getTextColorPrimary() { return highContrast ? HC_TEXT : getCurrentTheme().textPrimary; }
+    public static int getTextColorSecondary() { return highContrast ? HC_TEXT_2 : getCurrentTheme().textSecondary; }
+    public static int getOverlayBackgroundColor() { return highContrast ? HC_BG : getCurrentTheme().bgOverlay; }
+    public static int getListButtonNormalBg() { return highContrast ? HC_BG : getCurrentTheme().btnNormal; }
+    public static int getListButtonFocusedBg() { return highContrast ? HC_FOCUS : getCurrentTheme().btnFocused; }
+    public static int getListButtonFocusedTextColor() { return highContrast ? HC_FOCUS_TEXT : getCurrentTheme().btnFocusedText; }
     public static int getButtonRadius() { return getCurrentTheme().buttonRadius; }
 }
