@@ -138,7 +138,7 @@ public class ThemeManager {
 
     // Decodes a theme image downsampled so neither side exceeds MAX_THEME_IMAGE_SIDE. Returns null
     // for unreadable files or when memory runs out, so callers fall back to their default image.
-    private static android.graphics.Bitmap decodeThemeImage(File file) {
+    static android.graphics.Bitmap decodeThemeImage(File file) { // (also the theme preview)
         try {
             android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;

@@ -4320,6 +4320,20 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     clickFeedback();
+                    showThemePreview(index); // 🚀 [Themes] look first, then Apply
+                }
+            });
+            containerSettingsItems.addView(btn);
+        }
+        addBrokenThemeRows();
+    }
+
+    // Applies the theme at this index of availableThemes and redraws the app (the music keeps playing).
+    private void applyThemeAt(final int index) {
+        final ThemeManager.ThemeData theme = ThemeManager.availableThemes.get(index);
+        {
+            {
+                {
                     ThemeManager.setThemeIndex(index);
                     try {
                         SharedPreferences.Editor editor = prefs.edit();
@@ -4384,10 +4398,123 @@ public class MainActivity extends Activity {
 
                     recreate(); // 화면 새로고침! (새로운 위젯 설정이 즉시 반영됩니다)
                 }
-            });
-            containerSettingsItems.addView(btn);
+            }
+        }
+    }
+
+    // =======================================================
+    // 🚀 [Themes] Preview before applying: a small mock-up of the main menu drawn with the theme's own
+    // background, colours, font, button shape and menu entries, with Apply / Cancel.
+    // =======================================================
+    private void showThemePreview(final int index) {
+        final ThemeManager.ThemeData t = ThemeManager.availableThemes.get(index);
+        float d = getResources().getDisplayMetrics().density;
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(0xFFFFFFFF);
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(layout);
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
+
+        TextView title = new TextView(this);
+        title.setText(t.name);
+        title.setTextColor(0xFF000000);
+        title.setTextSize(17);
+        title.setTypeface(ThemeManager.getCustomFontBold());
+        title.setPadding((int) (10 * d), (int) (8 * d), (int) (10 * d), (int) (6 * d));
+        layout.addView(title);
+        layout.addView(buildThemeMockup(t), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (int) (150 * d)));
+
+        boolean current = ThemeManager.getCurrentThemeIndex() == index;
+        addQueueMenuRow(layout, wheel, current ? t("In Use") : t("Apply"), v -> {
+            dialog.dismiss();
+            if (ThemeManager.getCurrentThemeIndex() != index) applyThemeAt(index);
+        });
+        addQueueMenuRow(layout, wheel, t("Cancel"), v -> dialog.dismiss());
+        dialog.show();
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (layout.getChildCount() > 2) layout.getChildAt(2).requestFocus();
+            }
+        }, 50);
+    }
+
+    private View buildThemeMockup(ThemeManager.ThemeData t) {
+        float d = getResources().getDisplayMetrics().density;
+        FrameLayout box = new FrameLayout(this);
+        box.setBackgroundColor(0xFF000000);
+
+        // Background: the theme's own picture if it has one.
+        File bg = null;
+        if (t.bgImage != null && !t.bgImage.isEmpty()) bg = new File(t.folderPath, t.bgImage);
+        if (bg == null || !bg.exists()) bg = new File(t.folderPath, "background.png");
+        if (!bg.exists()) bg = new File(t.folderPath, "bg.png");
+        if (bg.exists()) {
+            Bitmap bmp = ThemeManager.decodeThemeImage(bg);
+            if (bmp != null) {
+                ImageView iv = new ImageView(this);
+                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                iv.setImageBitmap(bmp);
+                box.addView(iv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            }
         }
 
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        box.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        TextView status = new TextView(this);
+        status.setText("iPod");
+        status.setTextSize(11);
+        status.setTextColor(t.textPrimary);
+        status.setBackgroundColor(t.statusBarBg);
+        status.setPadding((int) (6 * d), (int) (2 * d), (int) (6 * d), (int) (2 * d));
+        if (t.customFont != null) status.setTypeface(t.customFont);
+        col.addView(status);
+
+        // The theme's own menu entries, in their order (the first one focused).
+        List<ThemeManager.MenuElement> buttons = new ArrayList<>();
+        for (ThemeManager.MenuElement el : t.menuElements) if ("button".equals(el.type)) buttons.add(el);
+        java.util.Collections.sort(buttons, new java.util.Comparator<ThemeManager.MenuElement>() {
+            @Override
+            public int compare(ThemeManager.MenuElement a, ThemeManager.MenuElement b) {
+                return a.focusIndex - b.focusIndex;
+            }
+        });
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setBackgroundColor(t.bgOverlay);
+        list.setPadding((int) (4 * d), (int) (4 * d), (int) (4 * d), (int) (4 * d));
+        col.addView(list, new LinearLayout.LayoutParams((int) (170 * d), ViewGroup.LayoutParams.MATCH_PARENT));
+        for (int i = 0; i < Math.min(5, buttons.size()); i++) {
+            ThemeManager.MenuElement el = buttons.get(i);
+            TextView row = new TextView(this);
+            String label = el.textNormal != null && !el.textNormal.isEmpty() ? t(el.textNormal) : el.id;
+            row.setText(label);
+            row.setTextSize(14);
+            row.setSingleLine(true);
+            row.setPadding((int) (6 * d), (int) (3 * d), (int) (6 * d), (int) (3 * d));
+            Typeface face = i == 0 && t.customFontBold != null ? t.customFontBold : t.customFont;
+            if (face != null) row.setTypeface(face, i == 0 && t.customFontBold == null ? Typeface.BOLD : Typeface.NORMAL);
+            GradientDrawable shape = new GradientDrawable();
+            shape.setCornerRadius(t.buttonRadius * d);
+            shape.setColor(i == 0 ? t.btnFocused : t.btnNormal);
+            row.setBackground(shape);
+            row.setTextColor(i == 0 ? t.btnFocusedText : t.textPrimary);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = (int) (2 * d);
+            list.addView(row, lp);
+        }
+        return box;
+    }
+
+    private void addBrokenThemeRows() {
         // 🚀 [Theme validation] Damaged themes are listed after the usable ones (so the focus index of
         // the current theme still matches its row) and explain what's wrong instead of applying.
         for (final ThemeManager.BrokenTheme broken : ThemeManager.brokenThemes) {

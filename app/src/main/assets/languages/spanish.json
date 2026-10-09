@@ -632,5 +632,7 @@
   "Connect to Wi-Fi first.": "Conéctate antes a una red Wi-Fi.",
   "Stop (%1$d/%2$d)": "Detener (%1$d/%2$d)",
   "%d found": "%d encontradas",
-  "Lyrics: %d songs got lyrics.": "Letras: %d canciones tienen letra nueva."
+  "Lyrics: %d songs got lyrics.": "Letras: %d canciones tienen letra nueva.",
+  "Apply": "Aplicar",
+  "In Use": "En uso"
 }
