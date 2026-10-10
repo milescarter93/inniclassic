@@ -280,6 +280,12 @@ public class AudioPlayerManager {
                     // Track just played to completion - evaluate it for scrobbling before
                     // any repeat/next logic changes the player's position.
                     com.themoon.y1.managers.LastFmScrobbler.getInstance(main).evaluateAndMaybeSubmit(getCurrentPosition());
+                    // 🚀 [Podcasts] a podcast episode heard to the end is marked as played
+                    if (main.currentIndex >= 0 && main.currentIndex < main.currentPlaylist.size()) {
+                        String done = main.currentPlaylist.get(main.currentIndex).getAbsolutePath();
+                        if (done.startsWith(PodcastStore.ROOT.getAbsolutePath() + "/") || done.startsWith("/PODCAST_STREAM/"))
+                            PodcastStore.markFinished(main, done);
+                    }
 
                     int repeatMode = main.prefs.getInt("repeat_mode", 0);
                     if (repeatMode == 1) {

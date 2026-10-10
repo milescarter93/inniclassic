@@ -600,9 +600,11 @@ public class MainActivity extends Activity {
     // 🚀 [Settings sections] iPod-style Settings: a short list of sections, each one its own page.
     // Extras (clock, alarm, stopwatch) is drawn the same way, as a page of its own.
     private static final int SS_TOP = -1, SS_PLAYBACK = 0, SS_DISPLAY = 1, SS_CONTROLS = 2, SS_CONNECTIONS = 3,
-            SS_SYSTEM = 4, SS_EXTRAS = 5, SS_DISCOVER = 6;
+            SS_SYSTEM = 4, SS_EXTRAS = 5, SS_DISCOVER = 6, SS_PODCASTS = 7;
     private static final String[] SETTINGS_SECTION_TITLES = { "Playback", "Display", "Menus & Controls",
-            "Connections", "System", "Extras", "Get Audiobooks" };
+            "Connections", "System", "Extras", "Get Audiobooks", "Podcasts" };
+    // A page to come back to from Now Playing (an episode or a book started from its page), or null.
+    private Runnable settingsReturnPage;
     private int settingsSection = SS_TOP;
     private int settingsTopFocus = 0, extrasFocus = 0;
     private String settingsRowLabel; // the row a sub-page was opened from (its status bar title)
@@ -1935,6 +1937,16 @@ public class MainActivity extends Activity {
             ThemeManager.largeText = prefs.getBoolean("large_text", false); // 🚀 [Accessibility]
             com.themoon.y1.managers.AudiobookStore.setListener(audiobookListener); // 🚀 [Audiobooks]
             com.themoon.y1.managers.AudiobookStore.resumePending(this);
+            com.themoon.y1.managers.PodcastStore.setListener(podcastListener); // 🚀 [Podcasts]
+            com.themoon.y1.managers.PodcastStore.resumePending(this);
+            podcastHandler.postDelayed(podcastCheck, 60000);
+            new Thread(() -> { // the verified HTTPS for streams, ready before the first one
+                try {
+                    com.themoon.y1.managers.LyricsFetcher.client(this);
+                } catch (Exception e) {
+                    android.util.Log.w("Y1Podcasts", "HTTPS set-up: " + e);
+                }
+            }, "Y1Https").start();
             ThemeManager.highContrast = prefs.getBoolean("high_contrast", false);
         } catch (Exception e) {
         }
@@ -5367,7 +5379,7 @@ public class MainActivity extends Activity {
         } else if (currentScreenState == STATE_WIFI_KEYBOARD) {
             // The wheel keyboard started as the Wi-Fi password screen but is shared by several features;
             // title it after what it's being used for.
-            if (currentKeyboardMode == 4 || currentKeyboardMode == 8) title = t("Search");
+            if (currentKeyboardMode == 4 || currentKeyboardMode == 8 || currentKeyboardMode == 9) title = t("Search");
             else if (currentKeyboardMode >= 5 && currentKeyboardMode <= 7) title = t("Playlists");
             else if (currentKeyboardMode == 1) title = t("Search Podcast");
             else if (currentKeyboardMode == 2 || currentKeyboardMode == 3) title = "Last.fm";
@@ -5426,6 +5438,7 @@ public class MainActivity extends Activity {
         }
 
         int safeFocusIndex = lastSettingsFocusIndex;
+        if (state != STATE_SETTINGS && state != STATE_PLAYER) settingsReturnPage = null;
         if (state == STATE_SETTINGS && currentScreenState == STATE_MENU && settingsSection != SS_TOP) {
             // 🚀 [Settings sections] From the main menu, Settings always opens on its list of sections.
             settingsSection = SS_TOP;
@@ -5527,7 +5540,13 @@ public class MainActivity extends Activity {
             lastSettingsFocusIndex = safeFocusIndex;
             // 🚀 [수정] 다이렉트 점프 중이 아닐 때만 메인 설정 화면을 그립니다!
             if (!isNavigatingToSubMenu) {
-                buildSettingsUI();
+                if (settingsReturnPage != null) { // 🚀 [Podcasts] back on the episode's page
+                    Runnable page = settingsReturnPage;
+                    settingsReturnPage = null;
+                    page.run();
+                } else {
+                    buildSettingsUI();
+                }
             }
 
         } else if (state == STATE_BLUETOOTH) {
@@ -6457,6 +6476,8 @@ public class MainActivity extends Activity {
             tvKeyboardSsid.setText("🔍 " + t("Search"));
         } else if (currentKeyboardMode == 8) {
             tvKeyboardSsid.setText("🔍 LibriVox (" + t(AudiobookLangName(discoverLang)) + ")");
+        } else if (currentKeyboardMode == 9) {
+            tvKeyboardSsid.setText("🔍 " + t("Search Podcasts"));
         } else if (currentKeyboardMode == 5) {
             tvKeyboardSsid.setText(t("New Playlist"));
         } else if (currentKeyboardMode == 6) {
@@ -6494,7 +6515,7 @@ public class MainActivity extends Activity {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter Last.fm username...") : typedPassword);
             } else if (currentKeyboardMode == 3) {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter Last.fm password...") : typedPassword);
-            } else if (currentKeyboardMode == 4 || currentKeyboardMode == 8) {
+            } else if (currentKeyboardMode == 4 || currentKeyboardMode == 8 || currentKeyboardMode == 9) {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter search term...") : typedPassword);
             } else if (currentKeyboardMode >= 5 && currentKeyboardMode <= 7) {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter a name...") : typedPassword);
@@ -6527,6 +6548,18 @@ public class MainActivity extends Activity {
                 }
                 changeScreen(STATE_BROWSER); // 💡 검색 버튼을 누르면 키보드를 닫고 브라우저로 복귀!
                 searchPodcastFromApple(typedPassword.trim()); // 🍏 애플 검색 엔진 발사!
+            } else if (currentKeyboardMode == 9) { // 🚀 [Podcasts] search
+                if (typedPassword.trim().isEmpty()) {
+                    Toast.makeText(this, t("Please enter a keyword."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                final String term = typedPassword.trim();
+                currentKeyboardMode = 0;
+                isNavigatingToSubMenu = true;
+                changeScreen(STATE_SETTINGS);
+                isNavigatingToSubMenu = false;
+                showShowList("“" + term + "”", () -> com.themoon.y1.managers.PodcastStore.search(this, term, podcastCountry()),
+                        this::buildSettingsUI);
             } else if (currentKeyboardMode == 8) { // 🚀 [Audiobooks] search LibriVox
                 if (typedPassword.trim().isEmpty()) {
                     Toast.makeText(this, t("Please enter a keyword."), Toast.LENGTH_SHORT).show();
@@ -7372,6 +7405,7 @@ public class MainActivity extends Activity {
         if (settingsSection == SS_TOP) addSettingsSectionRows();
         else if (settingsSection == SS_EXTRAS) addExtrasRows();
         else if (settingsSection == SS_DISCOVER) addDiscoverRows();
+        else if (settingsSection == SS_PODCASTS) addPodcastRows();
 
         // createCategoryHeader("━ QUICK SETTINGS ━");
 
@@ -12829,6 +12863,9 @@ public class MainActivity extends Activity {
                         case "OPEN_EXTRAS": // 🚀 [Extras] clock, alarm, stopwatch
                             openExtras();
                             break;
+                        case "OPEN_PODCASTS": // 🚀 [Podcasts]
+                            openPodcasts(false);
+                            break;
                         case "OPEN_SETTINGS":
                             changeScreen(STATE_SETTINGS);
                             break;
@@ -12853,11 +12890,6 @@ public class MainActivity extends Activity {
                         case "OPEN_ROOT_FOLDER":
                             currentBrowserMode = BROWSER_FOLDER;
                             currentFolder = new File("/storage/sdcard0"); // 최상위 루트 폴더로 강제 이동!
-                            changeScreen(STATE_BROWSER);
-                            break;
-                        case "OPEN_PODCASTS":
-                            isPodcastOpenedFromLibrary = false;
-                            currentBrowserMode = BROWSER_PODCAST_CHANNELS;
                             changeScreen(STATE_BROWSER);
                             break;
                         case "OPEN_WIFI":
@@ -14575,6 +14607,12 @@ public class MainActivity extends Activity {
                     clickFeedback();
                     return true;
                 }
+                if (currentKeyboardMode == 9) { // 🚀 [Podcasts] back to Podcasts
+                    currentKeyboardMode = 0;
+                    changeScreen(STATE_SETTINGS);
+                    clickFeedback();
+                    return true;
+                }
                 if (currentKeyboardMode == 8) { // 🚀 [Audiobooks] back to Get Audiobooks
                     currentKeyboardMode = 0;
                     changeScreen(STATE_SETTINGS);
@@ -14914,7 +14952,20 @@ public class MainActivity extends Activity {
                     isRadioUIShowing = false;
 
                     // 🚀 [라우팅 정화 완벽 복구] 깊이(Depth)를 파악하여 알맞은 상위 메뉴로 완벽하게 돌아갑니다!
-                    if (currentSettingsDepth == 0 && settingsSection == SS_DISCOVER) {
+                    if (currentSettingsDepth == 0 && settingsSection == SS_PODCASTS) {
+                        // 🚀 [Podcasts] back to the main menu, or to Music
+                        podcastFocus = lastSettingsFocusIndex;
+                        settingsSection = SS_TOP;
+                        lastSettingsFocusIndex = settingsTopFocus;
+                        if (podcastsFromMusic) {
+                            currentBrowserMode = BROWSER_ROOT;
+                            lastBrowserFocusText = t("Podcasts");
+                            changeScreen(STATE_BROWSER);
+                        } else {
+                            applyThemeToMainMenu();
+                            changeScreen(STATE_MENU);
+                        }
+                    } else if (currentSettingsDepth == 0 && settingsSection == SS_DISCOVER) {
                         // 🚀 [Audiobooks] back to Music > Audiobooks
                         discoverFocus = lastSettingsFocusIndex;
                         settingsSection = SS_TOP;
@@ -19271,6 +19322,705 @@ public class MainActivity extends Activity {
     }
 
     // =======================================================
+    // 🚀 [Podcasts] Main menu > Podcasts (and Music > Podcasts): pages drawn like Settings over
+    // managers/PodcastStore - My Podcasts, New Episodes, Downloaded, Explore (Apple's charts: top and
+    // categories, per country), Search, Check for New Episodes and Podcast Settings; a show's page
+    // (subscribe, its episodes) and an episode's page (play / resume, download, played).
+    // =======================================================
+    private int podcastFocus;
+    private boolean podcastsFromMusic;
+    private String podcastPageUrl; // the episode page on screen (download progress), or null
+    private TextView podcastPageStatus;
+    private boolean podcastListShowing; // a list of episodes on screen (refreshed when a download ends)
+    private Runnable podcastListRefresh;
+    private final Handler podcastHandler = new Handler();
+    // Every 6 hours, with Wi-Fi on: new episodes (and their automatic downloads).
+    private final Runnable podcastCheck = new Runnable() {
+        @Override
+        public void run() {
+            podcastHandler.removeCallbacks(this);
+            podcastHandler.postDelayed(this, 6 * 3600000L);
+            long last = prefs.getLong("pod_last_check", 0);
+            if (System.currentTimeMillis() - last > 6 * 3600000L - 60000
+                    && com.themoon.y1.managers.PodcastStore.wifiConnected(MainActivity.this)
+                    && !com.themoon.y1.managers.PodcastStore.subscriptions(MainActivity.this).isEmpty())
+                com.themoon.y1.managers.PodcastStore.refreshAll(MainActivity.this);
+        }
+    };
+    private static final String[] PODCAST_COUNTRIES = { "es", "mx", "ar", "us", "gb" };
+    private static final String[] PODCAST_COUNTRY_NAMES = { "Spain", "Mexico", "Argentina", "United States", "United Kingdom" };
+    private static final int[] PODCAST_GENRES = { 0, 1324, 1489, 1487, 1303, 1488, 1533, 1318, 1545, 1304, 1321, 1301,
+            1309, 1310, 1483, 1512, 1502, 1305, 1314 };
+    private static final String[] PODCAST_GENRE_NAMES = { "Top Podcasts", "Society & Culture", "News", "History",
+            "Comedy", "True Crime", "Science", "Technology", "Sports", "Education", "Business", "Arts", "TV & Film",
+            "Music", "Fiction", "Health & Fitness", "Leisure", "Kids & Family", "Religion & Spirituality" };
+
+    private String podcastCountry() {
+        return prefs.getString("pod_country", "es");
+    }
+
+    private final com.themoon.y1.managers.PodcastStore.Listener podcastListener =
+            new com.themoon.y1.managers.PodcastStore.Listener() {
+                @Override
+                public void onProgress(com.themoon.y1.managers.PodcastStore.Job job) {
+                    if (podcastPageStatus != null && job.episode.audioUrl.equals(podcastPageUrl) && onPodcastPages())
+                        podcastPageStatus.setText(String.format(Locale.US, t("Downloading · %d%%"), job.percent()));
+                }
+
+                @Override
+                public void onFinished(com.themoon.y1.managers.PodcastStore.Job job, boolean ok) {
+                    if (!ok && !job.cancelled)
+                        Toast.makeText(MainActivity.this, String.format(t("Download stopped: %s"), job.episode.title)
+                                + (job.error != null ? " (" + job.error + ")" : ""), Toast.LENGTH_LONG).show();
+                    if (!onPodcastPages()) return;
+                    if (job.episode.audioUrl.equals(podcastPageUrl) && settingsDepth2Back != null)
+                        buildEpisodePageUI(job.episode, settingsDepth2Back);
+                    else if (podcastListShowing && podcastListRefresh != null) podcastListRefresh.run();
+                }
+
+                @Override
+                public void onRefreshed(int checked, int total, boolean finished) {
+                    if (onPodcastPages() && currentSettingsDepth == 0) {
+                        if (finished) buildSettingsUI();
+                        else if (podcastPageStatus != null)
+                            podcastPageStatus.setText(String.format(Locale.US, t("Checking %1$d of %2$d..."), checked, total));
+                    }
+                }
+            };
+
+    private boolean onPodcastPages() {
+        return currentScreenState == STATE_SETTINGS && settingsSection == SS_PODCASTS;
+    }
+
+    private void openPodcasts(boolean fromMusic) {
+        podcastsFromMusic = fromMusic;
+        isNavigatingToSubMenu = true;
+        changeScreen(STATE_SETTINGS);
+        settingsSection = SS_PODCASTS;
+        lastSettingsFocusIndex = podcastFocus;
+        buildSettingsUI();
+        isNavigatingToSubMenu = false;
+        // new episodes when Podcasts opens, at most once an hour
+        if (com.themoon.y1.managers.PodcastStore.wifiConnected(this)
+                && System.currentTimeMillis() - prefs.getLong("pod_last_check", 0) > 3600000L
+                && !com.themoon.y1.managers.PodcastStore.subscriptions(this).isEmpty())
+            com.themoon.y1.managers.PodcastStore.refreshAll(this);
+    }
+
+    private void leavePodcastPages() {
+        podcastPageUrl = null;
+        podcastPageStatus = null;
+        podcastListShowing = false;
+        podcastListRefresh = null;
+    }
+
+    private void addPodcastRows() {
+        leavePodcastPages();
+        List<com.themoon.y1.managers.PodcastStore.Show> subs = com.themoon.y1.managers.PodcastStore.subscriptions(this);
+        List<com.themoon.y1.managers.PodcastStore.Episode> fresh = com.themoon.y1.managers.PodcastStore.newEpisodes(this, 50);
+        List<com.themoon.y1.managers.PodcastStore.Episode> local = com.themoon.y1.managers.PodcastStore.downloaded(this);
+        int downloading = com.themoon.y1.managers.PodcastStore.jobs().size();
+
+        LinearLayout mine = createSettingRow("My Podcasts", (subs.isEmpty() ? "" : subs.size() + "  ") + "›");
+        mine.setOnClickListener(v -> {
+            clickFeedback();
+            buildMyPodcastsUI();
+        });
+        containerSettingsItems.addView(mine);
+        LinearLayout news = createSettingRow("New Episodes", (fresh.isEmpty() ? "" : fresh.size() + "  ") + "›");
+        news.setOnClickListener(v -> {
+            clickFeedback();
+            showEpisodeList(t("New Episodes"), () -> com.themoon.y1.managers.PodcastStore.newEpisodes(this, 50), true);
+        });
+        containerSettingsItems.addView(news);
+        LinearLayout down = createSettingRow("Downloaded",
+                (downloading > 0 ? "⬇ " + downloading + "  " : local.isEmpty() ? "" : local.size() + "  ") + "›");
+        down.setOnClickListener(v -> {
+            clickFeedback();
+            showEpisodeList(t("Downloaded"), () -> com.themoon.y1.managers.PodcastStore.downloaded(this), true);
+        });
+        containerSettingsItems.addView(down);
+        LinearLayout explore = createSettingRow("Explore", "›");
+        explore.setOnClickListener(v -> {
+            clickFeedback();
+            buildExploreUI();
+        });
+        containerSettingsItems.addView(explore);
+        LinearLayout search = createSettingRow("Search", "›");
+        search.setOnClickListener(v -> {
+            clickFeedback();
+            currentKeyboardMode = 9;
+            changeScreen(STATE_WIFI_KEYBOARD);
+        });
+        containerSettingsItems.addView(search);
+        final LinearLayout check = createSettingRow("Check for New Episodes", "");
+        long last = prefs.getLong("pod_last_check", 0);
+        ((TextView) check.getChildAt(1)).setText(com.themoon.y1.managers.PodcastStore.isRefreshing() ? t("Checking...")
+                : last > 0 && !subs.isEmpty() ? episodeDate(last) + " " + fmtClock(new Date(last).getHours(), new Date(last).getMinutes()) : "");
+        if (com.themoon.y1.managers.PodcastStore.isRefreshing()) podcastPageStatus = (TextView) check.getChildAt(1);
+        check.setOnClickListener(v -> {
+            clickFeedback();
+            if (subs.isEmpty()) {
+                Toast.makeText(this, t("Subscribe to a podcast first (Explore or Search)."), Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (!com.themoon.y1.managers.PodcastStore.wifiConnected(this)) {
+                Toast.makeText(this, t("Turn on Wi-Fi to check for new episodes."), Toast.LENGTH_LONG).show();
+                return;
+            }
+            com.themoon.y1.managers.PodcastStore.refreshAll(this);
+            podcastPageStatus = (TextView) check.getChildAt(1);
+            podcastPageStatus.setText(t("Checking..."));
+        });
+        containerSettingsItems.addView(check);
+        LinearLayout settings = createSettingRow("Podcast Settings", "›");
+        settings.setOnClickListener(v -> {
+            clickFeedback();
+            buildPodcastSettingsUI();
+        });
+        containerSettingsItems.addView(settings);
+        if (subs.isEmpty())
+            containerSettingsItems.addView(discoverNote(t("Start in Explore: the most listened podcasts, by category. Open one and subscribe.")));
+    }
+
+    private void buildMyPodcastsUI() {
+        setSettingsDepth(1);
+        leavePodcastPages();
+        settingsRowLabel = t("My Podcasts");
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        List<com.themoon.y1.managers.PodcastStore.Show> subs = com.themoon.y1.managers.PodcastStore.subscriptions(this);
+        for (final com.themoon.y1.managers.PodcastStore.Show s : subs) {
+            int unplayed = 0;
+            com.themoon.y1.managers.PodcastStore.Feed f = com.themoon.y1.managers.PodcastStore.cached(s);
+            if (f != null) {
+                long since = System.currentTimeMillis() - 30L * 86400000L;
+                for (com.themoon.y1.managers.PodcastStore.Episode e : f.episodes)
+                    if (e.pubTime >= since && !com.themoon.y1.managers.PodcastStore.isPlayed(prefs, e)) unplayed++;
+            }
+            LinearLayout row = createSettingRow("", (unplayed > 0 ? unplayed + "  " : "") + "›");
+            ((TextView) row.getChildAt(0)).setText(s.name);
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                buildShowPageUI(s, this::buildMyPodcastsUI);
+            });
+            containerSettingsItems.addView(row);
+        }
+        if (subs.isEmpty()) {
+            containerSettingsItems.addView(createSettingRow("No subscriptions yet", ""));
+            containerSettingsItems.addView(discoverNote(t("Start in Explore: the most listened podcasts, by category. Open one and subscribe.")));
+        }
+        containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    private void buildExploreUI() {
+        setSettingsDepth(1);
+        leavePodcastPages();
+        String country = podcastCountry();
+        int ci = java.util.Arrays.asList(PODCAST_COUNTRIES).indexOf(country);
+        settingsRowLabel = t("Explore") + " · " + t(PODCAST_COUNTRY_NAMES[Math.max(0, ci)]);
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        for (int i = 0; i < PODCAST_GENRES.length; i++) {
+            final int genre = PODCAST_GENRES[i];
+            final String name = t(PODCAST_GENRE_NAMES[i]);
+            LinearLayout row = createSettingRow(PODCAST_GENRE_NAMES[i], "›");
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                podcastFocus2 = containerSettingsItems.indexOfChild(v);
+                showShowList(name, () -> com.themoon.y1.managers.PodcastStore.chart(this, country, genre), this::buildExploreUI);
+            });
+            containerSettingsItems.addView(row);
+        }
+        View f = containerSettingsItems.getChildAt(Math.min(podcastFocus2, containerSettingsItems.getChildCount() - 1));
+        f.requestFocus();
+    }
+
+    private int podcastFocus2;
+
+    // A list of shows (a chart or a search), loaded in the background. back = where Back goes.
+    private void showShowList(final String title, final java.util.concurrent.Callable<List<com.themoon.y1.managers.PodcastStore.Show>> load,
+            final Runnable back) {
+        setSettingsDepth(2);
+        settingsDepth2Back = back;
+        leavePodcastPages();
+        settingsRowLabel = title;
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        final LinearLayout loading = createSettingRow("Loading...", "");
+        containerSettingsItems.addView(loading);
+        loading.requestFocus();
+        final Object token = new Object();
+        showListToken = token;
+        new Thread(() -> {
+            List<com.themoon.y1.managers.PodcastStore.Show> found = null;
+            Exception error = null;
+            try {
+                found = load.call();
+            } catch (Exception e) {
+                error = e;
+            }
+            final List<com.themoon.y1.managers.PodcastStore.Show> shows = found;
+            final Exception err = error;
+            runOnUiThread(() -> {
+                if (showListToken != token || !onPodcastPages()) return;
+                if (shows == null) {
+                    android.util.Log.w("Y1Podcasts", "List failed", err);
+                    ((TextView) loading.getChildAt(0)).setText(t("Couldn't connect. Is Wi-Fi on?"));
+                    return;
+                }
+                renderShowList(title, shows, back, 0);
+            });
+        }, "Y1PodList").start();
+    }
+
+    private Object showListToken;
+
+    private void renderShowList(final String title, final List<com.themoon.y1.managers.PodcastStore.Show> shows, final Runnable back,
+            int focus) {
+        setSettingsDepth(2);
+        settingsDepth2Back = back;
+        leavePodcastPages();
+        settingsRowLabel = title;
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        float d = getResources().getDisplayMetrics().density;
+        for (int i = 0; i < shows.size(); i++) {
+            final com.themoon.y1.managers.PodcastStore.Show s = shows.get(i);
+            final int index = i;
+            LinearLayout row = createSettingRow("", "");
+            boolean subscribed = com.themoon.y1.managers.PodcastStore.isSubscribed(this, s.feedUrl);
+            ((TextView) row.getChildAt(0)).setText((subscribed ? "✓ " : "") + s.name);
+            TextView author = (TextView) row.getChildAt(1);
+            author.setText(s.author);
+            author.setMaxWidth((int) (130 * d));
+            author.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                buildShowPageUI(s, () -> renderShowList(title, shows, back, index));
+            });
+            containerSettingsItems.addView(row);
+        }
+        if (shows.isEmpty()) containerSettingsItems.addView(createSettingRow("Nothing found", ""));
+        containerSettingsItems.getChildAt(Math.max(0, Math.min(focus, containerSettingsItems.getChildCount() - 1))).requestFocus();
+    }
+
+    private Bitmap loadPodcastArt(com.themoon.y1.managers.PodcastStore.Show s) {
+        File local = new File(com.themoon.y1.managers.PodcastStore.showDir(s.name), "cover.jpg");
+        try {
+            if (local.exists()) return com.themoon.y1.managers.ThumbnailCache.decodeSampled(local.getAbsolutePath(), 220);
+            if (s.artUrl != null && !s.artUrl.isEmpty()) {
+                okhttp3.Response r = com.themoon.y1.managers.LyricsFetcher.client(this).newCall(new okhttp3.Request.Builder()
+                        .url(s.artUrl.replace("100x100bb", "220x220bb")).build()).execute();
+                try {
+                    if (r.isSuccessful()) return BitmapFactory.decodeStream(r.body().byteStream());
+                } finally {
+                    r.close();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private View podcastHeader(Bitmap art, String title, String[] lines) {
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setPadding((int) (8 * dp), (int) (8 * dp), (int) (8 * dp), (int) (8 * dp));
+        ImageView cover = new ImageView(this);
+        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        if (art != null) cover.setImageBitmap(art);
+        else cover.setImageResource(R.drawable.default_album);
+        head.addView(cover, new LinearLayout.LayoutParams((int) (96 * dp), (int) (96 * dp)));
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding((int) (12 * dp), 0, 0, 0);
+        TextView tv = new TextView(this);
+        tv.setText(title);
+        tv.setTextColor(ThemeManager.getTextColorPrimary());
+        tv.setTypeface(ThemeManager.getCustomFontBold());
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 18 * ThemeManager.textScale() * dp);
+        tv.setMaxLines(2);
+        tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        info.addView(tv);
+        for (String line : lines) {
+            if (line == null || line.isEmpty()) continue;
+            TextView l = new TextView(this);
+            l.setText(line);
+            l.setTextColor(ThemeManager.getTextColorSecondary());
+            l.setTypeface(ThemeManager.getCustomFont());
+            l.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 15 * ThemeManager.textScale() * dp);
+            l.setSingleLine(true);
+            l.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            info.addView(l);
+        }
+        head.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return head;
+    }
+
+    private String episodeDate(long time) {
+        if (time <= 0) return "";
+        java.util.Calendar now = java.util.Calendar.getInstance(), c = java.util.Calendar.getInstance();
+        c.setTimeInMillis(time);
+        boolean thisYear = now.get(java.util.Calendar.YEAR) == c.get(java.util.Calendar.YEAR);
+        // in the app's language ("9 oct"), not the system's (the Y1's is English)
+        String[] months = { "January", "February", "March", "April", "May", "June", "July", "August", "September",
+                "October", "November", "December" };
+        String month = t(months[c.get(java.util.Calendar.MONTH)]);
+        month = month.length() > 3 ? month.substring(0, 3) : month;
+        if (!t("January").equals("January")) month = month.toLowerCase(Locale.ROOT); // Spanish months are lower case
+        return c.get(java.util.Calendar.DAY_OF_MONTH) + " " + month + (thisYear ? "" : " " + c.get(java.util.Calendar.YEAR));
+    }
+
+    // An episode's state, for the right of its row: downloading, played, heard so far, downloaded, or its date.
+    private String episodeState(com.themoon.y1.managers.PodcastStore.Episode e) {
+        com.themoon.y1.managers.PodcastStore.Job job = com.themoon.y1.managers.PodcastStore.jobFor(e.audioUrl);
+        if (job != null) return "⬇ " + (job.running ? job.percent() + "%" : "…");
+        String date = episodeDate(e.pubTime);
+        if (com.themoon.y1.managers.PodcastStore.isPlayed(prefs, e)) return "✓ " + date;
+        int pos = com.themoon.y1.managers.PodcastStore.position(prefs, e), dur = com.themoon.y1.managers.PodcastStore.duration(prefs, e);
+        String mark = com.themoon.y1.managers.PodcastStore.isDownloaded(e) ? "● " : "";
+        if (pos > 0 && dur > 0) return mark + Math.min(99, pos * 100 / dur) + "%";
+        return mark + date;
+    }
+
+    // A show: header, Subscribe / Unsubscribe, and its episodes (newest first).
+    private void buildShowPageUI(final com.themoon.y1.managers.PodcastStore.Show show, final Runnable back) {
+        setSettingsDepth(2);
+        settingsDepth2Back = back;
+        leavePodcastPages();
+        settingsRowLabel = show.name;
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        final LinearLayout loading = createSettingRow("Loading...", "");
+        containerSettingsItems.addView(loading);
+        loading.requestFocus();
+        final Object token = new Object();
+        showListToken = token;
+        new Thread(() -> {
+            com.themoon.y1.managers.PodcastStore.Feed feed = null;
+            Exception error = null;
+            try {
+                feed = com.themoon.y1.managers.PodcastStore.fetch(this, show);
+            } catch (Exception e) {
+                error = e;
+                feed = com.themoon.y1.managers.PodcastStore.cached(show); // offline: the last copy
+            }
+            Bitmap art = loadPodcastArt(feed != null && show.artUrl.isEmpty() ? feed.show : show);
+            final com.themoon.y1.managers.PodcastStore.Feed f = feed;
+            final Exception err = error;
+            runOnUiThread(() -> {
+                if (showListToken != token || !onPodcastPages()) return;
+                if (f == null) {
+                    android.util.Log.w("Y1Podcasts", "Feed failed", err);
+                    ((TextView) loading.getChildAt(0)).setText(t("Couldn't connect. Is Wi-Fi on?"));
+                    return;
+                }
+                if (show.artUrl.isEmpty()) show.artUrl = f.show.artUrl;
+                if (show.author.isEmpty()) show.author = f.show.author;
+                renderShowPage(show, f, art, back, err != null, -1);
+            });
+        }, "Y1PodShow").start();
+    }
+
+    private void renderShowPage(final com.themoon.y1.managers.PodcastStore.Show show, final com.themoon.y1.managers.PodcastStore.Feed feed,
+            final Bitmap art, final Runnable back, boolean offline, int focus) {
+        setSettingsDepth(2);
+        settingsDepth2Back = back;
+        leavePodcastPages();
+        settingsRowLabel = show.name;
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        containerSettingsItems.addView(podcastHeader(art, feed.show.name.isEmpty() ? show.name : feed.show.name,
+                new String[] { show.author, String.format(Locale.US, t("%d episodes"), feed.episodes.size())
+                        + (offline ? "  ·  " + t("offline") : "") }));
+        final boolean subscribed = com.themoon.y1.managers.PodcastStore.isSubscribed(this, show.feedUrl);
+        LinearLayout sub = createSettingRow(subscribed ? "Unsubscribe" : "Subscribe", subscribed ? "" : "＋");
+        sub.setOnClickListener(v -> {
+            clickFeedback();
+            if (subscribed) {
+                confirmPlaylistAction(String.format(t("Unsubscribe from “%s”? Downloaded episodes stay."), show.name),
+                        t("Unsubscribe"), () -> {
+                            com.themoon.y1.managers.PodcastStore.unsubscribe(this, show.feedUrl);
+                            renderShowPage(show, feed, art, back, offline, 1);
+                        });
+            } else {
+                if (show.name.isEmpty()) show.name = feed.show.name;
+                com.themoon.y1.managers.PodcastStore.subscribe(this, show);
+                new Thread(() -> {
+                    try {
+                        com.themoon.y1.managers.PodcastStore.fetch(this, show); // the offline copy
+                    } catch (Exception ignored) {
+                    }
+                }).start();
+                Toast.makeText(this, String.format(t("Subscribed to “%s”."), show.name), Toast.LENGTH_SHORT).show();
+                renderShowPage(show, feed, art, back, offline, 1);
+            }
+        });
+        containerSettingsItems.addView(sub);
+        final Runnable again = () -> renderShowPage(show, feed, art, back, offline,
+                containerSettingsItems.indexOfChild(containerSettingsItems.getFocusedChild()));
+        float d = getResources().getDisplayMetrics().density;
+        for (final com.themoon.y1.managers.PodcastStore.Episode e : feed.episodes) {
+            LinearLayout row = createSettingRow("", episodeState(e));
+            ((TextView) row.getChildAt(0)).setText(e.title);
+            ((TextView) row.getChildAt(1)).setMaxWidth((int) (110 * d));
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                final int at = containerSettingsItems.indexOfChild(v);
+                buildEpisodePageUI(e, () -> renderShowPage(show, feed, art, back, offline, at));
+            });
+            containerSettingsItems.addView(row);
+        }
+        podcastListShowing = true;
+        podcastListRefresh = again;
+        View f = containerSettingsItems.getChildAt(focus >= 1 && focus < containerSettingsItems.getChildCount() ? focus : 1);
+        if (f != null) f.requestFocus();
+        if (focus < 1 && containerSettingsItems.getParent() instanceof ScrollView)
+            ((ScrollView) containerSettingsItems.getParent()).scrollTo(0, 0);
+    }
+
+    // New Episodes / Downloaded: episodes of every show, read from the card.
+    private void showEpisodeList(final String title, final java.util.concurrent.Callable<List<com.themoon.y1.managers.PodcastStore.Episode>> load,
+            boolean fromTop) {
+        renderEpisodeList(title, load, 0);
+    }
+
+    private void renderEpisodeList(final String title, final java.util.concurrent.Callable<List<com.themoon.y1.managers.PodcastStore.Episode>> load,
+            int focus) {
+        setSettingsDepth(1);
+        leavePodcastPages();
+        settingsRowLabel = title;
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        List<com.themoon.y1.managers.PodcastStore.Episode> eps;
+        try {
+            eps = load.call();
+        } catch (Exception e) {
+            eps = new ArrayList<>();
+        }
+        float d = getResources().getDisplayMetrics().density;
+        for (final com.themoon.y1.managers.PodcastStore.Episode e : eps) {
+            LinearLayout row = createSettingRow("", episodeState(e));
+            ((TextView) row.getChildAt(0)).setText(e.title);
+            TextView right = (TextView) row.getChildAt(1);
+            right.setMaxWidth((int) (110 * d));
+            right.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                final int at = containerSettingsItems.indexOfChild(v);
+                // (depth 1 -> the episode page is depth 2; Back rebuilds this list)
+                buildEpisodePageUI(e, () -> renderEpisodeList(title, load, at));
+            });
+            containerSettingsItems.addView(row);
+        }
+        if (eps.isEmpty())
+            containerSettingsItems.addView(createSettingRow(title.equals(t("Downloaded")) ? "No downloaded episodes" : "No new episodes", ""));
+        podcastListShowing = true;
+        podcastListRefresh = () -> renderEpisodeList(title, load,
+                containerSettingsItems.indexOfChild(containerSettingsItems.getFocusedChild()));
+        containerSettingsItems.getChildAt(Math.max(0, Math.min(focus, containerSettingsItems.getChildCount() - 1))).requestFocus();
+    }
+
+    // An episode: play (or resume), download, played.
+    private void buildEpisodePageUI(final com.themoon.y1.managers.PodcastStore.Episode e, final Runnable back) {
+        setSettingsDepth(2);
+        settingsDepth2Back = back;
+        leavePodcastPages();
+        podcastPageUrl = e.audioUrl;
+        settingsRowLabel = e.show;
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        final com.themoon.y1.managers.PodcastStore.Show show = new com.themoon.y1.managers.PodcastStore.Show();
+        show.name = e.show;
+        show.artUrl = e.artUrl;
+        final boolean downloaded = com.themoon.y1.managers.PodcastStore.isDownloaded(e);
+        int pos = com.themoon.y1.managers.PodcastStore.position(prefs, e);
+        int dur = com.themoon.y1.managers.PodcastStore.duration(prefs, e);
+        boolean played = com.themoon.y1.managers.PodcastStore.isPlayed(prefs, e);
+        String info = episodeDate(e.pubTime);
+        if (dur > 0) info += (info.isEmpty() ? "" : "  ·  ") + formatDuration(dur / 1000);
+        if (e.size > 0) info += "  ·  " + formatMb(e.size);
+        final View head = podcastHeader(null, e.title, new String[] { e.show, info });
+        containerSettingsItems.addView(head);
+        new Thread(() -> {
+            final Bitmap art = loadPodcastArt(show);
+            runOnUiThread(() -> {
+                if (art != null && e.audioUrl.equals(podcastPageUrl))
+                    ((ImageView) ((ViewGroup) head).getChildAt(0)).setImageBitmap(art);
+            });
+        }).start();
+
+        LinearLayout play = createSettingRow(pos > 0 && !played ? "Resume" : "Play",
+                (pos > 0 && !played ? formatClock(pos) + "  " : "") + (downloaded ? "" : t("streaming") + "  ") + "›");
+        play.setOnClickListener(v -> {
+            clickFeedback();
+            playEpisode(e, back);
+        });
+        containerSettingsItems.addView(play);
+        com.themoon.y1.managers.PodcastStore.Job job = com.themoon.y1.managers.PodcastStore.jobFor(e.audioUrl);
+        if (job != null) {
+            LinearLayout status = createSettingRow("", "");
+            podcastPageStatus = (TextView) status.getChildAt(0);
+            podcastPageStatus.setText(job.running ? String.format(Locale.US, t("Downloading · %d%%"), job.percent()) : t("Waiting to download..."));
+            containerSettingsItems.addView(status);
+            LinearLayout cancel = createSettingRow("Cancel Download", "›");
+            cancel.setOnClickListener(v -> {
+                clickFeedback();
+                com.themoon.y1.managers.PodcastStore.cancel(this, e.audioUrl);
+                buildEpisodePageUI(e, back);
+            });
+            containerSettingsItems.addView(cancel);
+        } else if (downloaded) {
+            LinearLayout delete = createSettingRow("Delete Download", "›");
+            delete.setOnClickListener(v -> {
+                clickFeedback();
+                com.themoon.y1.managers.PodcastStore.deleteDownload(e);
+                buildEpisodePageUI(e, back);
+            });
+            containerSettingsItems.addView(delete);
+        } else {
+            LinearLayout download = createSettingRow("Download", (e.size > 0 ? formatMb(e.size) + "  " : "") + "›");
+            download.setOnClickListener(v -> {
+                clickFeedback();
+                if (!com.themoon.y1.managers.PodcastStore.wifiConnected(this)) {
+                    Toast.makeText(this, t("Turn on Wi-Fi to download."), Toast.LENGTH_LONG).show();
+                    return;
+                }
+                com.themoon.y1.managers.PodcastStore.enqueue(this, e);
+                buildEpisodePageUI(e, back);
+            });
+            containerSettingsItems.addView(download);
+        }
+        LinearLayout mark = createSettingRow(played ? "Mark as Unplayed" : "Mark as Played", "");
+        mark.setOnClickListener(v -> {
+            clickFeedback();
+            com.themoon.y1.managers.PodcastStore.setPlayed(this, e, !com.themoon.y1.managers.PodcastStore.isPlayed(prefs, e));
+            buildEpisodePageUI(e, back);
+        });
+        containerSettingsItems.addView(mark);
+        if (!e.description.isEmpty()) containerSettingsItems.addView(discoverNote(e.description));
+        play.requestFocus();
+        if (containerSettingsItems.getParent() instanceof ScrollView) ((ScrollView) containerSettingsItems.getParent()).scrollTo(0, 0);
+    }
+
+    private static String formatClock(int ms) {
+        int s = ms / 1000;
+        return s >= 3600 ? String.format(Locale.US, "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
+                : String.format(Locale.US, "%d:%02d", s / 60, s % 60);
+    }
+
+    // Plays the episode (the download, or the stream), from where it was left; Back from Now Playing
+    // comes back to the episode's page.
+    private void playEpisode(final com.themoon.y1.managers.PodcastStore.Episode e, final Runnable back) {
+        int pos = com.themoon.y1.managers.PodcastStore.isPlayed(prefs, e) ? 0 : com.themoon.y1.managers.PodcastStore.position(prefs, e);
+        File file = com.themoon.y1.managers.PodcastStore.episodeFile(e.show, e.title);
+        if (com.themoon.y1.managers.PodcastStore.isDownloaded(e)) {
+            List<File> one = new ArrayList<>();
+            one.add(file);
+            if (pos > 0) com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackListWithOffset(one, 0, pos);
+            else com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackList(one, 0);
+        } else {
+            if (!com.themoon.y1.managers.PodcastStore.wifiConnected(this)) {
+                Toast.makeText(this, t("Turn on Wi-Fi to listen without downloading."), Toast.LENGTH_LONG).show();
+                return;
+            }
+            com.themoon.y1.managers.AudioPlayerManager.getInstance().playPodcastStream(e.audioUrl, e.title, e.artUrl, e.show, pos);
+        }
+        if (com.themoon.y1.managers.PodcastStore.isPlayed(prefs, e)) com.themoon.y1.managers.PodcastStore.setPlayed(this, e, false);
+        settingsReturnPage = () -> buildEpisodePageUI(e, back);
+        changeScreen(STATE_PLAYER);
+    }
+
+    private void buildPodcastSettingsUI() {
+        setSettingsDepth(1);
+        leavePodcastPages();
+        settingsRowLabel = t("Podcast Settings");
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        final LinearLayout country = createSettingRow("Charts Country", "");
+        final Runnable showCountry = () -> {
+            int i = java.util.Arrays.asList(PODCAST_COUNTRIES).indexOf(podcastCountry());
+            ((TextView) country.getChildAt(1)).setText(t(PODCAST_COUNTRY_NAMES[Math.max(0, i)]));
+        };
+        showCountry.run();
+        country.setOnClickListener(v -> {
+            clickFeedback();
+            int i = java.util.Arrays.asList(PODCAST_COUNTRIES).indexOf(podcastCountry());
+            prefs.edit().putString("pod_country", PODCAST_COUNTRIES[(i + 1) % PODCAST_COUNTRIES.length]).commit();
+            showCountry.run();
+        });
+        containerSettingsItems.addView(country);
+        final int[] autoValues = { 0, 1, 3 };
+        final String[] autoLabels = { "Off", "Newest Episode", "3 Newest" };
+        final LinearLayout auto = createSettingRow("Download New Episodes", "");
+        final Runnable showAuto = () -> {
+            int v = prefs.getInt("pod_auto_download", 0);
+            int i = v == 1 ? 1 : v == 3 ? 2 : 0;
+            ((TextView) auto.getChildAt(1)).setText(t(autoLabels[i]));
+        };
+        showAuto.run();
+        auto.setOnClickListener(v -> {
+            clickFeedback();
+            int cur = prefs.getInt("pod_auto_download", 0);
+            int i = cur == 1 ? 1 : cur == 3 ? 2 : 0;
+            prefs.edit().putInt("pod_auto_download", autoValues[(i + 1) % autoValues.length]).commit();
+            showAuto.run();
+        });
+        containerSettingsItems.addView(auto);
+        final int[] cleanValues = { -1, 1, 7 };
+        final String[] cleanLabels = { "Never", "After 1 Day", "After 7 Days" };
+        final LinearLayout clean = createSettingRow("Delete Played Episodes", "");
+        final Runnable showClean = () -> {
+            int v = prefs.getInt("pod_cleanup_days", -1);
+            int i = v == 1 ? 1 : v == 7 ? 2 : 0;
+            ((TextView) clean.getChildAt(1)).setText(t(cleanLabels[i]));
+        };
+        showClean.run();
+        clean.setOnClickListener(v -> {
+            clickFeedback();
+            int cur = prefs.getInt("pod_cleanup_days", -1);
+            int i = cur == 1 ? 1 : cur == 7 ? 2 : 0;
+            prefs.edit().putInt("pod_cleanup_days", cleanValues[(i + 1) % cleanValues.length]).commit();
+            showClean.run();
+        });
+        containerSettingsItems.addView(clean);
+        LinearLayout imp = createSettingRow("Import Subscriptions (OPML)", "›");
+        imp.setOnClickListener(v -> {
+            clickFeedback();
+            List<File> files = com.themoon.y1.managers.PodcastStore.opmlFiles();
+            if (files.isEmpty()) {
+                Toast.makeText(this, t("Copy an .opml file (exported from another podcast app) to the Podcasts folder or the card."),
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            int added = 0;
+            for (File f : files) {
+                try {
+                    added += com.themoon.y1.managers.PodcastStore.importOpml(this, f);
+                } catch (Exception ex) {
+                    android.util.Log.w("Y1Podcasts", "OPML " + f + ": " + ex);
+                }
+            }
+            Toast.makeText(this, String.format(t("%d new subscriptions."), added), Toast.LENGTH_LONG).show();
+        });
+        containerSettingsItems.addView(imp);
+        LinearLayout exp = createSettingRow("Export Subscriptions (OPML)", "›");
+        exp.setOnClickListener(v -> {
+            clickFeedback();
+            try {
+                File out = com.themoon.y1.managers.PodcastStore.exportOpml(this);
+                Toast.makeText(this, String.format(t("Saved: %s"), "Podcasts/" + out.getName()), Toast.LENGTH_LONG).show();
+            } catch (Exception ex) {
+                Toast.makeText(this, t("Couldn't save the file."), Toast.LENGTH_LONG).show();
+            }
+        });
+        containerSettingsItems.addView(exp);
+        containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    // =======================================================
     // 🚀 [Audiobooks] Music > Audiobooks > Get Audiobooks: free LibriVox audiobooks in Spanish and English
     // (managers/AudiobookStore). Pages drawn like Settings: the lists (most popular, search), a book's
     // page (cover, length, size, Download / Listen / Delete) and the downloads.
@@ -19604,7 +20354,9 @@ public class MainActivity extends Activity {
             LinearLayout listen = createSettingRow("Listen", "›");
             listen.setOnClickListener(v -> {
                 clickFeedback();
+                final Runnable back = settingsDepth2Back;
                 listenToBook(com.themoon.y1.managers.AudiobookStore.bookDir(book));
+                settingsReturnPage = () -> buildBookPageUI(book, back);
             });
             containerSettingsItems.addView(listen);
             LinearLayout delete = createSettingRow("Delete from the Y1", "›");

@@ -154,6 +154,10 @@ public final class LyricsFetcher {
             ssl = SSLContext.getInstance("TLS");
         }
         ssl.init(null, new TrustManager[] { both }, null);
+        // 🚀 [Podcasts] Streams (ExoPlayer uses HttpsURLConnection) get the same check: the system first,
+        // then the chain check and the bundled roots - Android 4.2's own validator alone rejects today's
+        // ECDSA chains.
+        javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(ssl.getSocketFactory());
         client = new okhttp3.OkHttpClient.Builder()
                 .sslSocketFactory(ssl.getSocketFactory(), both)
                 .connectTimeout(10, TimeUnit.SECONDS)
