@@ -5353,6 +5353,8 @@ public class MainActivity extends Activity {
             title = tvBrowserPath.getText().toString();
         } else if (currentScreenState == STATE_PLAYER) {
             title = t("Now Playing");
+        } else if (gameTitle != null && isGameShowing()) {
+            title = gameTitle;
         } else if (extrasOverlay != null && extrasOverlay.getVisibility() == View.VISIBLE
                 && (extrasMode == OVERLAY_CLOCK || extrasMode == OVERLAY_STOPWATCH)) {
             title = t(extrasMode == OVERLAY_CLOCK ? "Clock" : "Stopwatch");
@@ -6187,6 +6189,14 @@ public class MainActivity extends Activity {
             com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
             if (!am.isPlaying())
                 am.playOrPauseMusic(); // 게임 시작 전에 재생 중이었다면 다시 이어서 재생!
+        }
+        if (quizFromGames) { // 🚀 [Games] back on Extras > Games
+            quizFromGames = false;
+            isNavigatingToSubMenu = true;
+            changeScreen(STATE_SETTINGS);
+            isNavigatingToSubMenu = false;
+            buildGamesUI();
+            return;
         }
         changeScreen(backTargetForUtility);
     }
@@ -12430,6 +12440,7 @@ public class MainActivity extends Activity {
         List<LinearLayout> createdButtons = new ArrayList<>(); // 🚀 Button에서 LinearLayout으로 업그레이드
 
         // 🚀 [숨김 필터링 엔진] 사용자가 설정창에서 숨기기로 한 버튼은 명단에서 아예 빼버립니다!
+        moveMusicQuizToGamesOnce(); // 🚀 [Games]
         List<ThemeManager.MenuElement> visibleButtonElements = new ArrayList<>();
         for (ThemeManager.MenuElement el : buttonElements) {
             if (!prefs.getBoolean("hide_btn_" + el.id, false)) {
@@ -15407,6 +15418,12 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // 🚀 [Games] A game takes every key while it's shown.
+        if (isGameShowing()) {
+            resetBacklightTimer();
+            gameView.handleKey(event);
+            return true;
+        }
         // 🚀 [Themes] The full-screen theme preview takes every key while it's shown.
         if (isThemePreviewShowing()) {
             handleThemePreviewKey(event);
@@ -19113,6 +19130,12 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        if (gameView != null) gameView.pause(); // 🚀 [Games]
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         if (pendingAlarmRing) {
@@ -19200,6 +19223,148 @@ public class MainActivity extends Activity {
             showExtrasOverlay(OVERLAY_STOPWATCH);
         });
         containerSettingsItems.addView(swRow);
+        final LinearLayout gamesRow = createSettingRow("Games", "›");
+        gamesRow.setOnClickListener(v -> {
+            clickFeedback();
+            gamesFocus = 0;
+            buildGamesUI();
+        });
+        containerSettingsItems.addView(gamesRow);
+    }
+
+    // =======================================================
+    // 🚀 [Games] Extras > Games: the Music Quiz and the mini-games (package games), each with its best
+    // score. A game runs full screen under the status bar and takes every key while it's shown.
+    // =======================================================
+    private static final String[] GAME_IDS = { "bricks", "snake", "simon", "blocks", "flappy", "older" };
+    private static final String[] GAME_NAMES = { "Bricks", "Snake", "Simon", "Blocks", "Flappy", "Which Came First?" };
+    private FrameLayout gameOverlay;
+    private com.themoon.y1.games.GameView gameView;
+    private String gameTitle;
+    private int gamesFocus;
+    private boolean quizFromGames;
+
+    private void buildGamesUI() {
+        setSettingsDepth(1);
+        containerSettingsItems.removeAllViews();
+        final LinearLayout quiz = createSettingRow("Music Quiz", "›");
+        quiz.setOnClickListener(v -> {
+            clickFeedback();
+            gamesFocus = 0;
+            quizFromGames = true;
+            changeScreen(STATE_MUSIC_QUIZ);
+        });
+        containerSettingsItems.addView(quiz);
+        for (int i = 0; i < GAME_IDS.length; i++) {
+            final int game = i;
+            int best = prefs.getInt("game_best_" + GAME_IDS[i], 0);
+            final LinearLayout row = createSettingRow(GAME_NAMES[i],
+                    best > 0 ? String.format(t("Best: %d"), best) + "  ›" : "›");
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                gamesFocus = containerSettingsItems.indexOfChild(row);
+                startGame(game);
+            });
+            containerSettingsItems.addView(row);
+        }
+        View focus = containerSettingsItems.getChildAt(Math.min(gamesFocus, containerSettingsItems.getChildCount() - 1));
+        focus.requestFocus();
+    }
+
+    private void startGame(int index) {
+        if (gameOverlay == null) {
+            gameOverlay = new FrameLayout(this);
+            gameOverlay.setClickable(true);
+            ((ViewGroup) findViewById(android.R.id.content)).addView(gameOverlay,
+                    new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        com.themoon.y1.games.GameView.Host host = new com.themoon.y1.games.GameView.Host() {
+            @Override
+            public String t(String english) {
+                return MainActivity.this.t(english);
+            }
+
+            @Override
+            public int best(String gameId) {
+                return prefs.getInt("game_best_" + gameId, 0);
+            }
+
+            @Override
+            public boolean submitScore(String gameId, int score) {
+                if (score <= best(gameId)) return false;
+                prefs.edit().putInt("game_best_" + gameId, score).commit();
+                return true;
+            }
+
+            @Override
+            public void feedback() {
+                clickFeedback();
+            }
+
+            @Override
+            public void keepAwake() {
+                resetBacklightTimer();
+            }
+
+            @Override
+            public void exitGame() {
+                closeGame();
+            }
+
+            @Override
+            public List<SongItem> library() {
+                return customLibrary;
+            }
+        };
+        String id = GAME_IDS[index];
+        if (id.equals("bricks")) gameView = new com.themoon.y1.games.BricksGame(this, host);
+        else if (id.equals("snake")) gameView = new com.themoon.y1.games.SnakeGame(this, host);
+        else if (id.equals("simon")) gameView = new com.themoon.y1.games.SimonGame(this, host);
+        else if (id.equals("blocks")) gameView = new com.themoon.y1.games.BlocksGame(this, host);
+        else if (id.equals("flappy")) gameView = new com.themoon.y1.games.FlappyGame(this, host);
+        else gameView = new com.themoon.y1.games.OlderSongGame(this, host);
+        gameView.setLook(menuDialogBgColor(), ThemeManager.getTextColorPrimary(), ThemeManager.getTextColorSecondary(),
+                ThemeManager.getListButtonFocusedBg() | 0xFF000000, ThemeManager.getCustomFont(),
+                ThemeManager.getCustomFontBold());
+        gameOverlay.removeAllViews();
+        gameOverlay.addView(gameView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        View statusBar = findViewById(R.id.layout_status_bar);
+        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) gameOverlay.getLayoutParams();
+        lp.topMargin = statusBar != null && statusBar.getVisibility() == View.VISIBLE ? statusBar.getHeight() : 0;
+        gameOverlay.setLayoutParams(lp);
+        gameOverlay.setVisibility(View.VISIBLE);
+        gameOverlay.bringToFront();
+        gameTitle = t(GAME_NAMES[index]);
+        updateStatusBarTitle();
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        android.util.Log.i("Y1Games", "Start " + id);
+    }
+
+    private boolean isGameShowing() {
+        return gameOverlay != null && gameOverlay.getVisibility() == View.VISIBLE && gameView != null;
+    }
+
+    private void closeGame() {
+        if (gameOverlay == null) return;
+        gameOverlay.setVisibility(View.GONE);
+        gameOverlay.removeAllViews();
+        gameView = null;
+        gameTitle = null;
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        updateStatusBarTitle();
+        if (currentScreenState == STATE_SETTINGS) buildGamesUI(); // the new best score
+    }
+
+    // The Music Quiz used to be on the main menu; it now lives in Extras > Games. Hidden once from the
+    // main menu of every theme (Settings > Menus & Controls > Main Menu Items brings it back).
+    private void moveMusicQuizToGamesOnce() {
+        if (prefs.getBoolean("quiz_moved_to_games", false) || ThemeManager.availableThemes.isEmpty()) return;
+        SharedPreferences.Editor e = prefs.edit();
+        for (ThemeManager.ThemeData theme : ThemeManager.availableThemes)
+            for (ThemeManager.MenuElement el : theme.menuElements)
+                if ("OPEN_MUSIC_QUIZ".equals(el.action)) e.putBoolean("hide_btn_" + el.id, true);
+        e.putBoolean("quiz_moved_to_games", true).commit();
     }
 
     // "The alarm will go off in 7 h 5 min." after the alarm settings change.
