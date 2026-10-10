@@ -597,6 +597,18 @@ public class MainActivity extends Activity {
 
     private int lastSettingsFocusIndex = 0;
     private int currentSettingsDepth = 1;
+    // 🚀 [Settings sections] iPod-style Settings: a short list of sections, each one its own page.
+    // Extras (clock, alarm, stopwatch) is drawn the same way, as a page of its own.
+    private static final int SS_TOP = -1, SS_PLAYBACK = 0, SS_DISPLAY = 1, SS_CONTROLS = 2, SS_CONNECTIONS = 3,
+            SS_SYSTEM = 4, SS_EXTRAS = 5;
+    private static final String[] SETTINGS_SECTION_TITLES = { "Playback", "Display", "Menus & Controls",
+            "Connections", "System", "Extras" };
+    private int settingsSection = SS_TOP;
+    private int settingsTopFocus = 0, extrasFocus = 0;
+    private String settingsRowLabel; // the row a sub-page was opened from (its status bar title)
+    private java.util.TreeMap<Integer, View> settingsSectionRows;
+    private Runnable settingsDepth2Back; // where Back goes from a depth-2 page that isn't the EQ's
+    private boolean alarmSettingsChanged;
     private boolean isScreenSleeping = false;
     private long lastScreenOnTime = 0;
     // 💡 [추가] 커스텀 배터리 뷰 변수
@@ -2700,7 +2712,10 @@ public class MainActivity extends Activity {
         if (prefs.getBoolean("reboot_to_settings", false)) {
             // 🚀 [Accessibility] back to the Settings row that was just toggled
             lastSettingsFocusIndex = prefs.getInt("reboot_settings_focus", 0);
-            prefs.edit().remove("reboot_to_settings").remove("reboot_settings_focus").commit();
+            settingsSection = prefs.getInt("reboot_settings_section", SS_TOP);
+            if (settingsSection != SS_TOP) settingsTopFocus = settingsSection;
+            prefs.edit().remove("reboot_to_settings").remove("reboot_settings_focus")
+                    .remove("reboot_settings_section").commit();
             isNavigatingToSubMenu = true;
             changeScreen(STATE_SETTINGS);
             buildSettingsUI();
@@ -2713,6 +2728,10 @@ public class MainActivity extends Activity {
             // 철저하게 차단합니다.
             isNavigatingToSubMenu = true;
             changeScreen(STATE_SETTINGS);
+            settingsSection = SS_DISPLAY; // 🚀 [Settings sections] Theme lives in Display (its first row)
+            settingsTopFocus = SS_DISPLAY;
+            lastSettingsFocusIndex = 0;
+            settingsRowLabel = t("Theme");
             buildThemeSelectorUI(); // 대망의 테마 리스트 화면 정상 출력!
             isNavigatingToSubMenu = false; // 처리가 모두 끝났으므로 플래그 해제
         } else {
@@ -4312,7 +4331,7 @@ public class MainActivity extends Activity {
 
     // 💡 [추가] 테마 리스트를 쫙 보여주고 사용자가 고를 수 있게 하는 전용 화면
     private void buildThemeSelectorUI() {
-        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
+        setSettingsDepth(1); // 🚀 메인 설정은 깊이 0
         File themeFolder = new File("/storage/sdcard0/Y1_Themes");
         ThemeManager.loadThemesFromStorage(themeFolder);
 
@@ -4425,7 +4444,7 @@ public class MainActivity extends Activity {
         final ThemeManager.ThemeData t = ThemeManager.availableThemes.get(index);
         float d = getResources().getDisplayMetrics().density;
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(layout);
@@ -4437,7 +4456,7 @@ public class MainActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText(t.name);
-        title.setTextColor(0xFF000000);
+        title.setTextColor(ThemeManager.getTextColorPrimary());
         title.setTextSize(17);
         title.setTypeface(ThemeManager.getCustomFontBold());
         title.setPadding((int) (10 * d), (int) (8 * d), (int) (10 * d), (int) (6 * d));
@@ -4889,8 +4908,11 @@ public class MainActivity extends Activity {
             title = tvBrowserPath.getText().toString();
         } else if (currentScreenState == STATE_PLAYER) {
             title = t("Now Playing");
+        } else if (extrasOverlay != null && extrasOverlay.getVisibility() == View.VISIBLE
+                && (extrasMode == OVERLAY_CLOCK || extrasMode == OVERLAY_STOPWATCH)) {
+            title = t(extrasMode == OVERLAY_CLOCK ? "Clock" : "Stopwatch");
         } else if (currentScreenState == STATE_SETTINGS) {
-            title = t("Settings");
+            title = settingsScreenTitle();
         } else if (currentScreenState == STATE_BLUETOOTH) {
             title = t("Bluetooth");
         } else if (currentScreenState == STATE_WIFI_KEYBOARD) {
@@ -4955,6 +4977,11 @@ public class MainActivity extends Activity {
         }
 
         int safeFocusIndex = lastSettingsFocusIndex;
+        if (state == STATE_SETTINGS && currentScreenState == STATE_MENU && settingsSection != SS_TOP) {
+            // 🚀 [Settings sections] From the main menu, Settings always opens on its list of sections.
+            settingsSection = SS_TOP;
+            safeFocusIndex = settingsTopFocus;
+        }
         int safeMenuIndex = lastMainMenuFocusIndex; // 🚀 [안전 금고 2] 화면 전환 시 안드로이드 오토 포커스로 인한 오염을 막기 위한 백업!
 
         currentScreenState = state;
@@ -5928,7 +5955,8 @@ public class MainActivity extends Activity {
 
                             // 💡 설정창(Settings) 복원 전용 인덱스 오프셋도 보너스로 동시 저장!
                             if (focused.getParent() == containerSettingsItems) {
-                                exactOffsetMemory.put("SETTINGS_" + containerSettingsItems.indexOfChild(focused),
+                                exactOffsetMemory.put("SETTINGS_" + settingsSection + "_"
+                                        + containerSettingsItems.indexOfChild(focused),
                                         offset);
                             }
                             // 🚀 [추가] 메인 화면(동적 메뉴) 복원 전용 인덱스 오프셋도 금고에 저장합니다!
@@ -6570,30 +6598,46 @@ public class MainActivity extends Activity {
         final LinearLayout layout = new LinearLayout(this);
         layout.setSoundEffectsEnabled(false);
         layout.setOrientation(LinearLayout.HORIZONTAL);
+        layout.setGravity(Gravity.CENTER_VERTICAL);
         layout.setFocusable(true);
-        layout.setPadding(20, 15, 20, 15);
         layout.setOnLongClickListener(globalScreenOffLongClickListener);
         // 🚀 [수정 완료] 단색 덮어쓰기(setBackgroundColor)를 삭제하고, 둥글기가 적용된 배경만 입힙니다!
         layout.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
 
-        // 🚀 [Main Menu와 폰트 크기 통일] SP 대신 PX(px) 단위로 강제 고정 - 모든 메뉴 화면에서 100% 동일한 렌더링 크기 보장!
+        // 🚀 [Settings redesign] The same rows as every other list (Music, Extras, the main menu): compact,
+        // the name in bold on the left, the value on the right in the secondary colour, "›" on rows that
+        // open a page.
         float settingRowDensity = getResources().getDisplayMetrics().density;
+        int padV = (int) ((ThemeManager.isClassicTheme() ? 4 : 6) * settingRowDensity);
+        layout.setPadding((int) (8 * settingRowDensity), padV, (int) (10 * settingRowDensity), padV);
+        float rowTextPx = ThemeManager.getListTextSize() * settingRowDensity;
 
         TextView tvLeft = new TextView(this);
-        tvLeft.setTypeface(ThemeManager.getCustomFont(), Typeface.NORMAL);
+        tvLeft.setTypeface(ThemeManager.getCustomFontBold());
         tvLeft.setText(t(leftText));
         tvLeft.setTextColor(ThemeManager.getTextColorPrimary());
-        tvLeft.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 20f * ThemeManager.textScale() * settingRowDensity);
+        tvLeft.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, rowTextPx);
+        tvLeft.setSingleLine(true);
+        tvLeft.setEllipsize(android.text.TextUtils.TruncateAt.END);
         tvLeft.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
 
         TextView tvRight = new TextView(this);
-        tvRight.setTypeface(ThemeManager.getCustomFontBold());
-        tvRight.setText(rightText);
-        tvRight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 20f * ThemeManager.textScale() * settingRowDensity);
-        tvRight.setTypeface(ThemeManager.getCustomFontBold());
+        tvRight.setTypeface(ThemeManager.getCustomFont(), Typeface.NORMAL);
+        tvRight.setText(rightText.replace("〉", "›").trim());
+        tvRight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, rowTextPx * 0.9f);
+        tvRight.setSingleLine(true);
         tvRight.setGravity(Gravity.RIGHT);
-        tvRight.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams rightLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        rightLp.leftMargin = (int) (8 * settingRowDensity);
+        tvRight.setLayoutParams(rightLp);
+        if (ThemeManager.isClassicTheme()) {
+            int h = (int) (ClassicMenuStyle.ROW_HEIGHT_DP * ThemeManager.textScale() * settingRowDensity);
+            layout.setMinimumHeight(h);
+            layout.setPadding((int) (8 * settingRowDensity), 0, (int) (8 * settingRowDensity), 0);
+            tvLeft.setIncludeFontPadding(false);
+            tvRight.setIncludeFontPadding(false);
+        }
 
         if (rightText.equals("ON") || rightText.equals("ONE") || rightText.equals("ALL"))
             tvRight.setTextColor(ThemeManager.getTextColorPrimary());
@@ -6615,8 +6659,10 @@ public class MainActivity extends Activity {
                     if (currentScreenState == STATE_SETTINGS) {
                         int idx = containerSettingsItems.indexOfChild(layout);
                         if (idx != -1) {
-                            if (currentSettingsDepth == 0)
+                            if (currentSettingsDepth == 0) {
                                 lastSettingsFocusIndex = idx;
+                                settingsRowLabel = ((TextView) layout.getChildAt(0)).getText().toString();
+                            }
                             else if (currentSettingsDepth == 1) {
                                 // lastRadioFocusIndex = idx; // 💡 라디오 포커스 완벽 추적!
 
@@ -6652,7 +6698,8 @@ public class MainActivity extends Activity {
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 2, 0, 2);
+        int rowMargin = ThemeManager.isClassicTheme() ? 0 : 2;
+        lp.setMargins(0, rowMargin, 0, rowMargin);
         layout.setLayoutParams(lp);
 
         return layout;
@@ -6820,27 +6867,41 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, 2, 0, 2);
+        if (ThemeManager.isClassicTheme()) {
+            // 🚀 [Settings redesign] Classic themes: the same compact rows as Music and Settings (a Button's
+            // own minimum height, 48dp, made these lists twice as tall).
+            int h = (int) (ClassicMenuStyle.ROW_HEIGHT_DP * ThemeManager.textScale() * density);
+            btn.setMinHeight(h);
+            btn.setMinimumHeight(h);
+            btn.setPadding(padLeft, 0, padLeft, 0);
+            btn.setIncludeFontPadding(false);
+            btn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, ThemeManager.getListTextSize() * density);
+            lp.setMargins(0, 0, 0, 0);
+        }
         btn.setLayoutParams(lp);
 
         return btn;
     }
 
     private void buildSettingsUI() {
-        currentSettingsDepth = 0; // 🚀 메인 설정은 깊이 0
+        setSettingsDepth(0); // 🚀 메인 설정은 깊이 0
 
         // 🚀 [안전장치] 일반 세팅 화면으로 들어오면 라디오 UI 플래그를 완벽하게 해제합니다.
         isRadioUIShowing = false;
         isRadioSettingsMode = false;
 
-        // 🚀 [추가] 일반 설정창으로 돌아올 때는 숨겨둔 상단 제목 글씨를 다시 띄워줍니다.
-        ViewGroup settingsGroup = (ViewGroup) layoutSettingsMode;
-        if (settingsGroup != null && settingsGroup.getChildCount() > 0
-                && settingsGroup.getChildAt(0) instanceof TextView) {
-            settingsGroup.getChildAt(0).setVisibility(View.VISIBLE);
+        setSettingsCompact(true);
+        settingsDepth2Back = null;
+        if (settingsSection == SS_EXTRAS && alarmSettingsChanged) {
+            alarmSettingsChanged = false;
+            announceNextAlarm();
         }
 
         final int targetFocusIndex = lastSettingsFocusIndex;
         containerSettingsItems.removeAllViews();
+        settingsSectionRows = new java.util.TreeMap<>();
+        if (settingsSection == SS_TOP) addSettingsSectionRows();
+        else if (settingsSection == SS_EXTRAS) addExtrasRows();
 
         // createCategoryHeader("━ QUICK SETTINGS ━");
 
@@ -6854,7 +6915,7 @@ public class MainActivity extends Activity {
                 tvStatus.setText(isShuffleMode ? t("ON") : t("OFF"));
             }
         });
-        containerSettingsItems.addView(btnShuffle);
+        addToSection(SS_PLAYBACK, 1, btnShuffle);
 
         // 🚀 [Smart shuffle] What Shuffle shuffles: songs (spread out by artist) or whole albums.
         final String shuffleBy = prefs.getString(com.themoon.y1.managers.ShuffleHelper.PREF_KEY,
@@ -6874,10 +6935,10 @@ public class MainActivity extends Activity {
                 ((TextView) btnShuffleBy.getChildAt(1)).setText(albums ? t("Shuffle Albums") : t("Shuffle Songs"));
             }
         });
-        containerSettingsItems.addView(btnShuffleBy);
+        addToSection(SS_PLAYBACK, 2, btnShuffleBy);
 
         // 🚀 [Sleep timer]
-        final LinearLayout btnSleepTimer = createSettingRow("Sleep Timer", sleepTimerStatus() + " 〉");
+        final LinearLayout btnSleepTimer = createSettingRow("Sleep Timer", sleepTimerStatus() + " ›");
         btnSleepTimer.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -6885,12 +6946,12 @@ public class MainActivity extends Activity {
                 showSleepTimerDialog(new Runnable() {
                     @Override
                     public void run() {
-                        ((TextView) btnSleepTimer.getChildAt(1)).setText(sleepTimerStatus() + " 〉");
+                        ((TextView) btnSleepTimer.getChildAt(1)).setText(sleepTimerStatus() + " ›");
                     }
                 });
             }
         });
-        containerSettingsItems.addView(btnSleepTimer);
+        addToSection(SS_PLAYBACK, 4, btnSleepTimer);
 
         final LinearLayout btnRepeat = createSettingRow("Repeat Mode", t(getRepeatModeText(repeatMode)));
         btnRepeat.setOnClickListener(new View.OnClickListener() {
@@ -6902,7 +6963,7 @@ public class MainActivity extends Activity {
                 tvStatus.setText(t(getRepeatModeText(repeatMode)));
             }
         });
-        containerSettingsItems.addView(btnRepeat);
+        addToSection(SS_PLAYBACK, 3, btnRepeat);
 
         // 🚀 1. 메인 설정창 EQ 표시
         String eqDisplayName = "Normal";
@@ -6922,7 +6983,7 @@ public class MainActivity extends Activity {
                 buildEqualizerSettingsUI();
             }
         });
-        containerSettingsItems.addView(btnEq);
+        addToSection(SS_PLAYBACK, 5, btnEq);
 
         // 🚀 [iPod 스타일] Volume Limit - 최대 볼륨을 제한합니다
         String volumeLimitDisplay = (volumeLimitMax < 0) ? t("Off") : String.valueOf(volumeLimitMax);
@@ -6934,7 +6995,7 @@ public class MainActivity extends Activity {
                 buildVolumeLimitSettingsUI();
             }
         });
-        containerSettingsItems.addView(btnVolumeLimit);
+        addToSection(SS_PLAYBACK, 7, btnVolumeLimit);
 
         // 🚀 [iPod 스타일] Sound Check - 곡마다 음량 편차를 살짝 보정합니다
         final LinearLayout btnSoundCheck = createSettingRow("Sound Check", isSoundCheckEnabled ? t("ON") : t("OFF"));
@@ -6949,7 +7010,7 @@ public class MainActivity extends Activity {
                 com.themoon.y1.managers.AudioEffectManager.getInstance().applySoundCheck();
             }
         });
-        containerSettingsItems.addView(btnSoundCheck);
+        addToSection(SS_PLAYBACK, 6, btnSoundCheck);
 
         // 🚀 [신규 추가] Video: 화면비를 유지한 채(레터박스) 보여줄지, 화면을 완전히 채울지(원본 비율에
         // 따라 눌리거나 늘어날 수 있음) 선택 - GitHub Issue #7에서 직접 요청받은 기능.
@@ -6966,7 +7027,7 @@ public class MainActivity extends Activity {
                 tvStatus.setText(newState ? t("ON") : t("OFF"));
             }
         });
-        containerSettingsItems.addView(btnVideoFill);
+        addToSection(SS_DISPLAY, 11, btnVideoFill);
 
         // 🚀 [iPod 스타일] Now Playing 화면의 앨범 커버 입체 기울기 켜기/끄기
         final LinearLayout btnAlbumTilt = createSettingRow("Album Cover Tilt", isAlbumTiltEnabled ? t("ON") : t("OFF"));
@@ -6981,7 +7042,7 @@ public class MainActivity extends Activity {
                 applyAlbumTiltSetting();
             }
         });
-        containerSettingsItems.addView(btnAlbumTilt);
+        addToSection(SS_DISPLAY, 9, btnAlbumTilt);
 
         // 🚀 [Battery] The slow pan of the cover panels (main menu / Music) - off saves CPU and battery.
         final LinearLayout btnCoverMotion = createSettingRow("Cover Motion", isCoverMotionEnabled ? t("ON") : t("OFF"));
@@ -6995,7 +7056,7 @@ public class MainActivity extends Activity {
                 refreshCoverPanAnimations();
             }
         });
-        containerSettingsItems.addView(btnCoverMotion);
+        addToSection(SS_DISPLAY, 10, btnCoverMotion);
 
         // 🚀 [Now Playing Info] Format line and/or next song under the track counter.
         final LinearLayout btnNowPlayingInfo = createSettingRow("Now Playing Info",
@@ -7010,7 +7071,7 @@ public class MainActivity extends Activity {
                 updateNowPlayingInfo();
             }
         });
-        containerSettingsItems.addView(btnNowPlayingInfo);
+        addToSection(SS_DISPLAY, 8, btnNowPlayingInfo);
 
         // 🚀 [신규 추가] 구글 ExoPlayer 타임 스트레칭 (배속 재생) 컨트롤 스위치!
         final String[] speedLabels = { "1.0x (Normal)", "1.2x (Fast)", "1.5x (Faster)", "2.0x (Very Fast)" };
@@ -7045,7 +7106,7 @@ public class MainActivity extends Activity {
                         Toast.LENGTH_SHORT).show();
             }
         });
-        containerSettingsItems.addView(btnSpeed);
+        addToSection(SS_PLAYBACK, 8, btnSpeed);
         final LinearLayout btnSound = createSettingRow("Button Sound", isSoundEffectEnabled ? t("ON") : t("OFF"));
         btnSound.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -7061,7 +7122,7 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        containerSettingsItems.addView(btnSound);
+        addToSection(SS_CONTROLS, 4, btnSound);
 
         LinearLayout btnVibrateMenu = createSettingRow("Vibration", "〉 ");
         btnVibrateMenu.setOnClickListener(new View.OnClickListener() {
@@ -7071,7 +7132,7 @@ public class MainActivity extends Activity {
                 buildVibrationSettingsUI(); // 🚀 새로 만든 진동 서브 메뉴 열기!
             }
         });
-        containerSettingsItems.addView(btnVibrateMenu);
+        addToSection(SS_CONTROLS, 5, btnVibrateMenu);
 
         final LinearLayout btnScreenOffCtrl = createSettingRow("Screen-Off Control",
                 isScreenOffControlEnabled ? t("ON") : t("OFF"));
@@ -7088,7 +7149,7 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        containerSettingsItems.addView(btnScreenOffCtrl);
+        addToSection(SS_CONTROLS, 6, btnScreenOffCtrl);
 
         // 🚀 [iPod 스타일] Backlight Timer - 조작이 없을 때 화면이 자동으로 꺼지기까지의 시간
         final LinearLayout btnBacklightTimer = createSettingRow("Backlight Timer",
@@ -7107,7 +7168,7 @@ public class MainActivity extends Activity {
                 resetBacklightTimer();
             }
         });
-        containerSettingsItems.addView(btnBacklightTimer);
+        addToSection(SS_DISPLAY, 4, btnBacklightTimer);
         // 🚀 [Accessibility] Large Text / High Contrast: the screen is rebuilt to apply them everywhere.
         final LinearLayout btnLargeText = createSettingRow("Large Text", ThemeManager.largeText ? t("ON") : t("OFF"));
         btnLargeText.setOnClickListener(new View.OnClickListener() {
@@ -7117,7 +7178,7 @@ public class MainActivity extends Activity {
                 toggleAccessibility("large_text", containerSettingsItems.indexOfChild(btnLargeText));
             }
         });
-        containerSettingsItems.addView(btnLargeText);
+        addToSection(SS_DISPLAY, 6, btnLargeText);
         final LinearLayout btnHighContrast = createSettingRow("High Contrast", ThemeManager.highContrast ? t("ON") : t("OFF"));
         btnHighContrast.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -7126,7 +7187,7 @@ public class MainActivity extends Activity {
                 toggleAccessibility("high_contrast", containerSettingsItems.indexOfChild(btnHighContrast));
             }
         });
-        containerSettingsItems.addView(btnHighContrast);
+        addToSection(SS_DISPLAY, 7, btnHighContrast);
 
         // 🚀 [수정된 테마 설정 버튼]
         final LinearLayout btnTheme = createSettingRow("Theme", ThemeManager.getCurrentTheme().name);
@@ -7138,7 +7199,7 @@ public class MainActivity extends Activity {
                 buildThemeSelectorUI();
             }
         });
-        containerSettingsItems.addView(btnTheme);
+        addToSection(SS_DISPLAY, 1, btnTheme);
 
         // 🚀 [신규 엔진] 내가 원하는 메인 화면 버튼만 개별적으로 끄고 켤 수 있는 서브 메뉴 진입기
         final LinearLayout btnMenuVisibility = createSettingRow("Main Menu Items", t("Edit") + " 〉");
@@ -7176,7 +7237,7 @@ public class MainActivity extends Activity {
                         });
             }
         });
-        containerSettingsItems.addView(btnMenuVisibility);
+        addToSection(SS_CONTROLS, 1, btnMenuVisibility);
 
         // 🚀 [iPod 스타일] Music 메뉴 항목도 개별적으로 끄고 켤 수 있는 서브 메뉴 진입기
         final LinearLayout btnMusicMenuVisibility = createSettingRow("Music Menu Items", t("Edit") + " 〉");
@@ -7187,7 +7248,7 @@ public class MainActivity extends Activity {
                 buildMusicMenuVisibilitySettingsUI();
             }
         });
-        containerSettingsItems.addView(btnMusicMenuVisibility);
+        addToSection(SS_CONTROLS, 2, btnMusicMenuVisibility);
 
         // 🚀 [휠 루프 버그 수리] 메인 화면 연결 고리 즉시 새로고침 탑재!
         final LinearLayout btnLoopScrollToggle = createSettingRow("Wheel Loop Scroll",
@@ -7204,7 +7265,7 @@ public class MainActivity extends Activity {
                 // applyThemeToMainMenu();
             }
         });
-        containerSettingsItems.addView(btnLoopScrollToggle);
+        addToSection(SS_CONTROLS, 3, btnLoopScrollToggle);
         final LinearLayout btnTimeout = createSettingRow("Screen Timeout", t(TIMEOUT_NAMES[currentTimeoutIndex]));
         btnTimeout.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -7227,7 +7288,7 @@ public class MainActivity extends Activity {
             }
         });
         // (기존 타임아웃 버튼 코드)
-        containerSettingsItems.addView(btnTimeout);
+        addToSection(SS_DISPLAY, 5, btnTimeout);
 
         // (그 아래에 이어지는 Power Off 메뉴 등 기존 코드 유지...)
 
@@ -7265,7 +7326,7 @@ public class MainActivity extends Activity {
                         .show();
             }
         });
-        containerSettingsItems.addView(btnPowerOff);
+        addToSection(SS_SYSTEM, 10, btnPowerOff);
 
         LinearLayout btnServerMenu = createSettingRow(t("Web Server"), "〉 ");
         btnServerMenu.setOnClickListener(new View.OnClickListener() {
@@ -7275,7 +7336,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
             }
         });
-        containerSettingsItems.addView(btnServerMenu);
+        addToSection(SS_CONNECTIONS, 3, btnServerMenu);
 
         LinearLayout btnWifiMenu = createSettingRow(t("Wi-Fi"), "〉 ");
         btnWifiMenu.setOnClickListener(new View.OnClickListener() {
@@ -7285,7 +7346,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
             }
         });
-        containerSettingsItems.addView(btnWifiMenu);
+        addToSection(SS_CONNECTIONS, 1, btnWifiMenu);
         // 🚀 [추가 1] 인터넷에서 앨범 아트 및 곡 정보 자동 검색 켜기/끄기
         final LinearLayout btnAutoFetch = createSettingRow("Auto Fetch Album Art",
                 isAutoFetchEnabled ? t("ON") : t("OFF"));
@@ -7301,7 +7362,7 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        containerSettingsItems.addView(btnAutoFetch);
+        addToSection(SS_CONNECTIONS, 4, btnAutoFetch);
         // 🚀 [수정] 기기에 쌓인 앨범 아트 이미지와 저장된 곡 정보(제목, 가수)까지 한 번에 싹 초기화합니다!
         LinearLayout btnClearCache = createSettingRow("Clear Album Art & Info", "〉 ");
         btnClearCache.setOnClickListener(new View.OnClickListener() {
@@ -7379,7 +7440,7 @@ public class MainActivity extends Activity {
                         .show();
             }
         });
-        containerSettingsItems.addView(btnClearCache);
+        addToSection(SS_SYSTEM, 7, btnClearCache);
         LinearLayout btnBtMenu = createSettingRow("Bluetooth", "〉 ");
         btnBtMenu.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -7388,7 +7449,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
             }
         });
-        containerSettingsItems.addView(btnBtMenu);
+        addToSection(SS_CONNECTIONS, 2, btnBtMenu);
 
         // 🚀 [신규 추가] Last.fm 스크로블링 ON/OFF 토글 + 계정 로그인/로그아웃
         final com.themoon.y1.managers.LastFmScrobbler scrobbler = com.themoon.y1.managers.LastFmScrobbler.getInstance(this);
@@ -7403,7 +7464,7 @@ public class MainActivity extends Activity {
                 ((TextView) btnScrobbleToggle.getChildAt(1)).setText(newState ? t("ON") : t("OFF"));
             }
         });
-        containerSettingsItems.addView(btnScrobbleToggle);
+        addToSection(SS_CONNECTIONS, 5, btnScrobbleToggle);
 
         LinearLayout btnLastFmAccount = createSettingRow(t("Last.fm Account"),
                 scrobbler.isLoggedIn() ? ("@" + scrobbler.getUsername()) : t("Not Logged In"));
@@ -7429,7 +7490,7 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        containerSettingsItems.addView(btnLastFmAccount);
+        addToSection(SS_CONNECTIONS, 6, btnLastFmAccount);
 
         LinearLayout btnBrightMenu = createSettingRow("Display Brightness", "〉 ");
         btnBrightMenu.setOnClickListener(new View.OnClickListener() {
@@ -7439,7 +7500,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
             }
         });
-        containerSettingsItems.addView(btnBrightMenu);
+        addToSection(SS_DISPLAY, 3, btnBrightMenu);
 
         // 🚀 [Lyrics] Automatic download and "download all" from LRCLIB.
         LinearLayout btnLyricsMenu = createSettingRow("Lyrics", "〉 ");
@@ -7450,7 +7511,7 @@ public class MainActivity extends Activity {
                 buildLyricsSettingsUI();
             }
         });
-        containerSettingsItems.addView(btnLyricsMenu);
+        addToSection(SS_PLAYBACK, 9, btnLyricsMenu);
 
         // 🚀 [Battery] Level, charge state, estimated time left and the status bar percentage option.
         LinearLayout btnBatteryMenu = createSettingRow("Battery",
@@ -7462,7 +7523,7 @@ public class MainActivity extends Activity {
                 buildBatteryUI();
             }
         });
-        containerSettingsItems.addView(btnBatteryMenu);
+        addToSection(SS_SYSTEM, 2, btnBatteryMenu);
 
         LinearLayout btnStorageMenu = createSettingRow("About", "〉 ");
         btnStorageMenu.setOnClickListener(new View.OnClickListener() {
@@ -7472,7 +7533,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
             }
         });
-        containerSettingsItems.addView(btnStorageMenu);
+        addToSection(SS_SYSTEM, 1, btnStorageMenu);
 
         // 🚀 [수정] 흩어져 있던 두 가지 배경 기능을 'Background Settings' 라는 하나의 서브 메뉴로 묶어버립니다!
         LinearLayout btnBgMenu = createSettingRow("Background", "〉 ");
@@ -7483,7 +7544,7 @@ public class MainActivity extends Activity {
                 buildBackgroundSettingsUI(); // 🚀 위에서 만든 배경 설정 서브 메뉴를 띄웁니다!
             }
         });
-        containerSettingsItems.addView(btnBgMenu);
+        addToSection(SS_DISPLAY, 2, btnBgMenu);
 
         LinearLayout btnTime = createSettingRow("Date & Time", "〉");
         btnTime.setOnClickListener(new View.OnClickListener() {
@@ -7503,7 +7564,7 @@ public class MainActivity extends Activity {
                 buildDateTimeUI();
             }
         });
-        containerSettingsItems.addView(btnTime);
+        addToSection(SS_SYSTEM, 3, btnTime);
         // 🚀 [수정] 메인 설정 화면에서는 내 버전만 간단히 껍데기에 보여주고, 누르면 서브 페이지로 이동합니다!
         String myVersionName = "1.0";
         try {
@@ -7528,7 +7589,7 @@ public class MainActivity extends Activity {
                 buildLanguageSelectorUI(); // 언어 선택 서브 메뉴 열기
             }
         });
-        containerSettingsItems.addView(btnLangMenu);
+        addToSection(SS_SYSTEM, 4, btnLangMenu);
 
         LinearLayout btnUpdateCheck = createSettingRow("System Update", "v" + myVersionName);
         btnUpdateCheck.setOnClickListener(new View.OnClickListener() {
@@ -7538,7 +7599,7 @@ public class MainActivity extends Activity {
                 buildUpdateSettingsUI(); // 🚀 팝업 대신 새로 만든 서브 페이지를 엽니다!
             }
         });
-        containerSettingsItems.addView(btnUpdateCheck);
+        addToSection(SS_SYSTEM, 5, btnUpdateCheck);
 
         // 🚀 [iPod 스타일] Legal - 오픈소스/라이선스 고지 화면
         LinearLayout btnLegal = createSettingRow("Legal", "〉 ");
@@ -7549,7 +7610,7 @@ public class MainActivity extends Activity {
                 buildLegalSettingsUI();
             }
         });
-        containerSettingsItems.addView(btnLegal);
+        addToSection(SS_SYSTEM, 8, btnLegal);
 
         // 🚀 [Settings backup] Export/import all settings to the SD card
         LinearLayout btnBackupMenu = createSettingRow("Backup & Restore", "〉 ");
@@ -7560,7 +7621,7 @@ public class MainActivity extends Activity {
                 buildBackupSettingsUI();
             }
         });
-        containerSettingsItems.addView(btnBackupMenu);
+        addToSection(SS_SYSTEM, 6, btnBackupMenu);
 
         // 🚀 [iPod 스타일] Reset All Settings - 모든 앱 설정을 기본값으로 되돌립니다
         LinearLayout btnResetAll = createSettingRow("Reset All Settings", "〉 ");
@@ -7580,7 +7641,10 @@ public class MainActivity extends Activity {
                         .show();
             }
         });
-        containerSettingsItems.addView(btnResetAll);
+        addToSection(SS_SYSTEM, 9, btnResetAll);
+
+        for (View row : settingsSectionRows.values()) containerSettingsItems.addView(row);
+        settingsSectionRows = null;
 
         // 🚀 [설정창 전용 무감쇠 스크롤 엔진 적용]
         final ScrollView sv = (ScrollView) containerSettingsItems.getParent();
@@ -7598,8 +7662,8 @@ public class MainActivity extends Activity {
 
                     // 🚀 [원본 위치 100% 복원] 설정창 전용 인덱스로 저장된 오프셋을 꺼내옵니다.
                     int offset = (sv.getHeight() / 2) - (target.getHeight() / 2);
-                    if (exactOffsetMemory.containsKey("SETTINGS_" + targetFocusIndex)) {
-                        offset = exactOffsetMemory.get("SETTINGS_" + targetFocusIndex);
+                    if (exactOffsetMemory.containsKey("SETTINGS_" + settingsSection + "_" + targetFocusIndex)) {
+                        offset = exactOffsetMemory.get("SETTINGS_" + settingsSection + "_" + targetFocusIndex);
                     }
 
                     int targetY = target.getTop() - offset;
@@ -7618,7 +7682,7 @@ public class MainActivity extends Activity {
       // 💡 [신규 추가] 언어팩 선택 전용 화면
 
     private void buildLanguageSelectorUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
 
         final LanguageManager langMgr = LanguageManager
@@ -7661,8 +7725,9 @@ public class MainActivity extends Activity {
     }
 
     private void buildRadioUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         isRadioUIShowing = true; // 🚀 내가 지금 라디오 화면에 있다는 걸 시스템에 알림!
+        setSettingsCompact(false);
         containerSettingsItems.removeAllViews();
 
         // 🚀 상단 "Settings" 유령 타이틀 원천 차단 숨김 처리
@@ -8053,7 +8118,7 @@ public class MainActivity extends Activity {
     }
 
     private void buildUpdateSettingsUI() {
-        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
+        setSettingsDepth(1); // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
 
         // 1. 내 기기의 현재 버전 가져오기
@@ -8194,7 +8259,7 @@ public class MainActivity extends Activity {
 
     // 💡 [신규 추가] 진동 ON/OFF와 세기 조절을 담당하는 전용 서브 메뉴!
     private void buildVibrationSettingsUI() {
-        currentSettingsDepth = 1; // 메인 설정 밖으로 나왔음을 시스템에 알림
+        setSettingsDepth(1); // 메인 설정 밖으로 나왔음을 시스템에 알림
         containerSettingsItems.removeAllViews();
 
         // 1. 진동 전원 스위치
@@ -8242,7 +8307,7 @@ public class MainActivity extends Activity {
 
     // 💡 [추가] 배경화면 지정 및 삭제를 하나로 묶은 서브 메뉴 화면
     private void buildBackgroundSettingsUI() {
-        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
+        setSettingsDepth(1); // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
 
         // 1. 새로운 배경 지정 버튼
@@ -12283,7 +12348,7 @@ public class MainActivity extends Activity {
                             changeScreen(STATE_BLUETOOTH);
                             break;
                         case "OPEN_EXTRAS": // 🚀 [Extras] clock, alarm, stopwatch
-                            showExtrasMenu();
+                            openExtras();
                             break;
                         case "OPEN_SETTINGS":
                             changeScreen(STATE_SETTINGS);
@@ -13084,7 +13149,7 @@ public class MainActivity extends Activity {
     }
 
     private void buildLyricsSettingsUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
 
         final LinearLayout rowAuto = createSettingRow("Download Lyrics Automatically", isLyricsAutoOn() ? t("ON") : t("OFF"));
@@ -13247,17 +13312,81 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private void setSettingsDepth(int depth) {
+        currentSettingsDepth = depth;
+        if (depth < 2) settingsDepth2Back = null;
+        updateStatusBarTitle();
+    }
+
+    // Status bar title in Settings: the section, or the row a sub-page was opened from.
+    private String settingsScreenTitle() {
+        if (isRadioUIShowing) return t("Settings");
+        String section = settingsSection >= 0 ? t(SETTINGS_SECTION_TITLES[settingsSection]) : t("Settings");
+        if (currentSettingsDepth >= 1 && settingsSection >= 0 && settingsRowLabel != null) return settingsRowLabel;
+        return section;
+    }
+
+    // Classic themes: Settings uses the whole width under the status bar, like Music, and the status bar
+    // carries the title. Other themes (and the FM radio) keep the original framed layout.
+    private void setSettingsCompact(boolean compact) {
+        if (layoutSettingsMode == null) return;
+        float d = getResources().getDisplayMetrics().density;
+        boolean classic = compact && ThemeManager.isClassicTheme();
+        if (classic) layoutSettingsMode.setPadding(0, (int) (ClassicMenuStyle.STATUS_HEIGHT_DP * d), 0, 0);
+        else layoutSettingsMode.setPadding((int) (10 * d), (int) (36 * d), (int) (10 * d), (int) (10 * d));
+        View title = ((ViewGroup) layoutSettingsMode).getChildAt(0);
+        if (title instanceof TextView) {
+            title.setVisibility(classic || isRadioUIShowing ? View.GONE : View.VISIBLE);
+            ((TextView) title).setText(settingsScreenTitle());
+        }
+    }
+
+    private void addToSection(int section, int order, View row) {
+        if (settingsSection == section && settingsSectionRows != null) settingsSectionRows.put(order, row);
+    }
+
+    // The first page of Settings: one row per section.
+    private void addSettingsSectionRows() {
+        for (int i = SS_PLAYBACK; i <= SS_SYSTEM; i++) {
+            final int section = i;
+            final LinearLayout row = createSettingRow(SETTINGS_SECTION_TITLES[i], "›");
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                settingsTopFocus = containerSettingsItems.indexOfChild(row);
+                settingsSection = section;
+                lastSettingsFocusIndex = 0;
+                buildSettingsUI();
+            });
+            containerSettingsItems.addView(row);
+        }
+    }
+
+    // 🚀 [Coherent menus] Pop-up menus take the theme's colours (a fixed white box made a dark theme's
+    // white text unreadable): the list overlay colour, made opaque over a dark or a light base depending
+    // on whether the theme's text is light or dark.
+    int menuDialogBgColor() {
+        int text = ThemeManager.getTextColorPrimary();
+        double lum = (0.299 * Color.red(text) + 0.587 * Color.green(text) + 0.114 * Color.blue(text)) / 255.0;
+        int base = lum > 0.5 ? 0xFF1E1E22 : 0xFFF4F4F6;
+        int over = ThemeManager.getOverlayBackgroundColor();
+        float a = Color.alpha(over) / 255f;
+        return Color.rgb(Math.round(Color.red(over) * a + Color.red(base) * (1 - a)),
+                Math.round(Color.green(over) * a + Color.green(base) * (1 - a)),
+                Math.round(Color.blue(over) * a + Color.blue(base) * (1 - a)));
+    }
+
     // 🚀 [Accessibility] Saves the switch and rebuilds the screen (like a theme change), coming back to the
     // same Settings row.
     private void toggleAccessibility(String key, int rowIndex) {
         prefs.edit().putBoolean(key, !prefs.getBoolean(key, false))
                 .putBoolean("reboot_to_settings", true)
+                .putInt("reboot_settings_section", settingsSection)
                 .putInt("reboot_settings_focus", rowIndex).commit();
         recreate();
     }
 
     private void buildBatteryUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
 
         final LinearLayout rowPercent = createSettingRow("Battery Percentage", isBatteryPercentOn ? t("ON") : t("OFF"));
@@ -14300,14 +14429,31 @@ public class MainActivity extends Activity {
                     isRadioUIShowing = false;
 
                     // 🚀 [라우팅 정화 완벽 복구] 깊이(Depth)를 파악하여 알맞은 상위 메뉴로 완벽하게 돌아갑니다!
-                    if (currentSettingsDepth == 0) {
+                    if (currentSettingsDepth == 0 && settingsSection == SS_EXTRAS) {
+                        // 🚀 [Extras] back to the main menu
+                        extrasFocus = lastSettingsFocusIndex;
+                        settingsSection = SS_TOP;
+                        lastSettingsFocusIndex = settingsTopFocus;
+                        applyThemeToMainMenu();
+                        changeScreen(STATE_MENU);
+                    } else if (currentSettingsDepth == 0 && settingsSection != SS_TOP) {
+                        // 🚀 [Settings sections] from a section back to the list of sections
+                        lastSettingsFocusIndex = settingsTopFocus;
+                        settingsSection = SS_TOP;
+                        buildSettingsUI();
+                    } else if (currentSettingsDepth == 0) {
+                        settingsTopFocus = lastSettingsFocusIndex;
                         applyThemeToMainMenu(); // 🚀 추가! 설정창을 완전히 빠져나갈 때 메인 화면 완벽 갱신!
                         changeScreen(STATE_MENU);
                     } else if (currentSettingsDepth == 1) {
                         buildSettingsUI(); // 서브 메뉴창(깊이 1)이면 메인 설정창으로 1단계 복귀!
                     } else if (currentSettingsDepth == 2) {
                         // EQ 등의 더 깊은 창(깊이 2)에서 빠져나올 때의 처리
-                        if (settingsSubMode == 2 || settingsSubMode == 3) {
+                        if (settingsDepth2Back != null) {
+                            Runnable back = settingsDepth2Back;
+                            settingsDepth2Back = null;
+                            back.run();
+                        } else if (settingsSubMode == 2 || settingsSubMode == 3) {
                             buildEqualizerSettingsUI();
                         } else if (isRadioUIShowing) {
                             // 🚀 [라디오 채널 관리창에서 탈출] 안전하게 라디오 설정 메뉴로 1단계만 복귀!
@@ -15391,7 +15537,7 @@ public class MainActivity extends Activity {
 
     // 💡 1. 날짜/시간 설정 메인 화면 (시간 오류 및 포커스 락 버그 완벽 수정 버전)
     private void buildDateTimeUI() {
-        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
+        setSettingsDepth(1); // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
         // 🚀 [수정] 12시간/24시간 텍스트도 번역기를 거치도록 t()를 씌워줍니다!
         String formatRightText = is24HourFormat ? t("24 Hour") : t("12 Hour");
@@ -15531,20 +15677,7 @@ public class MainActivity extends Activity {
                     Toast.makeText(MainActivity.this, t("Failed: Root access required."), Toast.LENGTH_SHORT).show();
                 }
 
-                // 🚀 [포커스 버그 해결 1] 오염된 인덱스를 'Date & Time Settings' 메뉴 위치(14번째 항목)로 강제 정화
-                lastSettingsFocusIndex = 14;
-                buildSettingsUI();
-
-                // 🚀 [포커스 버그 해결 2] 50ms의 미세한 안전 딜레이를 주어 UI 가 완벽히 배치된 후 포커스를 확실히 꽂아줍니다.
-                containerSettingsItems.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (containerSettingsItems != null && containerSettingsItems.getChildCount() > 0) {
-                            containerSettingsItems.getChildAt(containerSettingsItems.getChildCount() - 1)
-                                    .requestFocus();
-                        }
-                    }
-                }, 50);
+                buildSettingsUI(); // 🚀 [Settings sections] back on the Date & Time row of System
             }
         });
         containerSettingsItems.addView(btnApply);
@@ -15555,7 +15688,7 @@ public class MainActivity extends Activity {
 
     // 🚀 [iPod 스타일] Legal - 오픈소스 구성 요소 및 고지 사항을 보여주는 단순 텍스트 화면
     private void buildLegalSettingsUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
 
         TextView tvLegal = new TextView(this);
@@ -15640,7 +15773,7 @@ public class MainActivity extends Activity {
 
     // 🚀 [Settings backup] Sub-menu: back up settings to /Y1_Backup on the SD card, or restore them
     private void buildBackupSettingsUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
 
         final LinearLayout btnExport = createSettingRow("Back Up Settings", "〉 ");
@@ -15731,7 +15864,7 @@ public class MainActivity extends Activity {
 
     // 🚀 [iPod 스타일] Volume Limit 선택 화면 - Off 또는 1~기기 최대 볼륨 단계 중 하나를 고릅니다
     private void buildVolumeLimitSettingsUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
 
         final int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
@@ -15782,7 +15915,7 @@ public class MainActivity extends Activity {
 
     // 💡 2. 숫자(년/월/일/시/분) 선택용 세로 리스트 화면
     private void buildDateTimeSelectorUI(final String type, int min, int max, int currentValue) {
-        currentSettingsDepth = 2; // 🚀 메인 설정은 깊이 0
+        setSettingsDepth(2); // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
 
         Button focusBtn = null;
@@ -16282,7 +16415,7 @@ public class MainActivity extends Activity {
 
     // 고급 EQ 메인 서브 페이지 빌더
     private void buildEqualizerSettingsUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         settingsSubMode = 2; // EQ 서브 모드 활성화
         com.themoon.y1.managers.AudioEffectManager.getInstance().loadAndSyncExternalEqProfiles();
         com.themoon.y1.managers.AudioEffectManager.getInstance().ensureAudioEffectsReady();
@@ -16497,7 +16630,7 @@ public class MainActivity extends Activity {
 
     // 프리셋 및 프로필 선택 창 (Depth 2)
     private void buildEqProfileSelectorUI() {
-        currentSettingsDepth = 2;
+        setSettingsDepth(2);
         containerSettingsItems.removeAllViews();
 
         // 🚀 [포커스 유지용 금고] 현재 켜져 있는(방금 누른) EQ 버튼을 기억할 공간입니다!
@@ -16609,7 +16742,7 @@ public class MainActivity extends Activity {
     // 🚀 [완벽 수정] 1픽셀의 오차도 없고 포커스 가두리가 해결된 그래픽 EQ 스튜디오
     // =========================================================================
     private void buildGraphicEqualizerUI() {
-        currentSettingsDepth = 2;
+        setSettingsDepth(2);
         settingsSubMode = 3;
         currentAdjustingBand = -1;
 
@@ -17412,7 +17545,7 @@ public class MainActivity extends Activity {
         final SongItem songItem = match;
 
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
 
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -17581,7 +17714,7 @@ public class MainActivity extends Activity {
         for (SongItem s : audiobookLibrary) byPath.put(s.file.getAbsolutePath(), s);
 
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(layout);
@@ -17640,7 +17773,7 @@ public class MainActivity extends Activity {
         final com.themoon.y1.managers.AudioPlayerManager apm = com.themoon.y1.managers.AudioPlayerManager.getInstance();
 
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(layout);
@@ -17854,7 +17987,7 @@ public class MainActivity extends Activity {
     private void showSleepTimerDialog(final Runnable onDone) {
         final com.themoon.y1.managers.SleepTimer timer = com.themoon.y1.managers.SleepTimer.getInstance();
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(layout);
@@ -17963,7 +18096,7 @@ public class MainActivity extends Activity {
     // (The list rows' own long-click menu needs a touch screen, which the Y1 doesn't have.)
     private void showSongMenu(final File songFile) {
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(layout);
@@ -18005,6 +18138,13 @@ public class MainActivity extends Activity {
         addQueueMenuRow(layout, wheel, t("Add to Playlist"), v -> {
             dialog.dismiss();
             showAddToPlaylistDialog(songFile);
+        });
+        addQueueMenuRow(layout, wheel, t("Use as Alarm"), v -> { // 🚀 [Extras] the alarm plays this song
+            dialog.dismiss();
+            prefs.edit().putString("alarm_music", com.themoon.y1.managers.AlarmScheduler.MUSIC_SONG)
+                    .putString("alarm_song", songFile.getAbsolutePath()).commit();
+            Toast.makeText(MainActivity.this, String.format(t("The alarm will play “%s”."), songLabel(songFile)),
+                    Toast.LENGTH_LONG).show();
         });
         if (hzIndexScroll != null && currentScrollIndexList != null && !currentScrollIndexList.isEmpty()) {
             addQueueMenuRow(layout, wheel, t("Jump to Letter"), v -> {
@@ -18201,7 +18341,7 @@ public class MainActivity extends Activity {
         final com.themoon.y1.managers.SmartPlaylist smart = row != null ? smartRowLists.get(row) : null;
 
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(layout);
@@ -18332,7 +18472,7 @@ public class MainActivity extends Activity {
     // A yes/no question with the wheel: "Cancel" first, so a stray click doesn't delete anything.
     private void confirmPlaylistAction(String question, String yesLabel, final Runnable onYes) {
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(layout);
@@ -18344,7 +18484,7 @@ public class MainActivity extends Activity {
 
         TextView tvQuestion = new TextView(this);
         tvQuestion.setText(question);
-        tvQuestion.setTextColor(0xFF000000);
+        tvQuestion.setTextColor(ThemeManager.getTextColorPrimary());
         tvQuestion.setTextSize(16);
         tvQuestion.setTypeface(ThemeManager.getCustomFontBold());
         float d = getResources().getDisplayMetrics().density;
@@ -18382,7 +18522,7 @@ public class MainActivity extends Activity {
     // =======================================================
     private void showQuickSettingsDialog() {
         ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
+        scrollView.setBackgroundColor(menuDialogBgColor());
         final LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(layout);
@@ -18576,100 +18716,130 @@ public class MainActivity extends Activity {
                 : String.format(Locale.US, "%02d:%02d.%d", min, sec, tenths);
     }
 
-    private void showExtrasMenu() {
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
-        final LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        scrollView.addView(layout);
-        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setView(scrollView)
-                .create();
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
-
-        addQueueMenuRow(layout, wheel, t("Clock"), v -> {
-            dialog.dismiss();
-            showExtrasOverlay(OVERLAY_CLOCK);
-        });
-        addQueueMenuRow(layout, wheel, alarmSummary(), v -> {
-            dialog.dismiss();
-            showAlarmSettingsDialog();
-        });
-        String sw = t("Stopwatch");
-        if (swRunning || swAccumulated > 0) sw += ": " + fmtStopwatch(stopwatchMs());
-        addQueueMenuRow(layout, wheel, sw, v -> {
-            dialog.dismiss();
-            showExtrasOverlay(OVERLAY_STOPWATCH);
-        });
-        addQueueMenuRow(layout, wheel, t("Close"), v -> dialog.dismiss());
-        dialog.show();
-        layout.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
-            }
-        }, 50);
+    // Main menu > Extras: a page drawn like Settings (same rows and status bar).
+    private void openExtras() {
+        isNavigatingToSubMenu = true;
+        changeScreen(STATE_SETTINGS);
+        settingsSection = SS_EXTRAS;
+        lastSettingsFocusIndex = extrasFocus;
+        buildSettingsUI();
+        isNavigatingToSubMenu = false;
     }
 
-    // Alarm settings: rows change with Center; Hour / Minute are set with the wheel (Center starts and stops).
-    private void showAlarmSettingsDialog() {
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(0xFFFFFFFF);
-        final LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        scrollView.addView(layout);
-        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setView(scrollView)
-                .create();
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        final View.OnKeyListener baseWheel = dialogWheelKeyListener(layout);
-        final View.OnKeyListener wheel = (v, keyCode, event) -> {
-            resetBacklightTimer();
-            return baseWheel.onKey(v, keyCode, event);
-        };
+    private void addExtrasRows() {
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        final LinearLayout clockRow = createSettingRow("Clock",
+                fmtClock(now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE)) + "  ›");
+        clockRow.setOnClickListener(v -> {
+            clickFeedback();
+            showExtrasOverlay(OVERLAY_CLOCK);
+        });
+        containerSettingsItems.addView(clockRow);
+        boolean on = com.themoon.y1.managers.AlarmScheduler.isEnabled(this);
+        final LinearLayout alarmRow = createSettingRow("Alarm", (on ? fmtClock(com.themoon.y1.managers.AlarmScheduler.hour(this),
+                com.themoon.y1.managers.AlarmScheduler.minute(this)) : t("OFF")) + "  ›");
+        alarmRow.setOnClickListener(v -> {
+            clickFeedback();
+            buildAlarmSettingsUI();
+        });
+        containerSettingsItems.addView(alarmRow);
+        final LinearLayout swRow = createSettingRow("Stopwatch",
+                (swRunning || swAccumulated > 0 ? fmtStopwatch(stopwatchMs()) : "") + "  ›");
+        swRow.setOnClickListener(v -> {
+            clickFeedback();
+            showExtrasOverlay(OVERLAY_STOPWATCH);
+        });
+        containerSettingsItems.addView(swRow);
+    }
 
-        final View enabledRow = createListButtonWithIcon("", "");
-        final View hourRow = createListButtonWithIcon("", "");
-        final View minuteRow = createListButtonWithIcon("", "");
-        final View daysRow = createListButtonWithIcon("", "");
-        final View musicRow = createListButtonWithIcon("", "");
-        final View fadeRow = createListButtonWithIcon("", "");
+    // "The alarm will go off in 7 h 5 min." after the alarm settings change.
+    private void announceNextAlarm() {
+        com.themoon.y1.managers.AlarmScheduler.schedule(this);
+        long next = com.themoon.y1.managers.AlarmScheduler.nextTrigger(this);
+        if (next > 0) {
+            long mins = Math.max(1, (next - System.currentTimeMillis() + 59999) / 60000);
+            Toast.makeText(this, String.format(Locale.US, t("The alarm will go off in %1$d h %2$d min."),
+                    mins / 60, mins % 60), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String alarmMusicLabel() {
+        String m = com.themoon.y1.managers.AlarmScheduler.music(this);
+        if (com.themoon.y1.managers.AlarmScheduler.MUSIC_SHUFFLE.equals(m)) return t("Shuffle All Songs");
+        if (com.themoon.y1.managers.AlarmScheduler.MUSIC_SONG.equals(m)) return t("A Song");
+        if (com.themoon.y1.managers.AlarmScheduler.MUSIC_PLAYLIST.equals(m)) return t("A Playlist");
+        return t("Resume Last Music");
+    }
+
+    // "Title – Artist" from the library, or the file name.
+    private String songLabel(File f) {
+        String path = f.getAbsolutePath();
+        for (SongItem s : customLibrary)
+            if (s.file.getAbsolutePath().equals(path)) return s.title + " – " + s.artist;
+        String name = f.getName();
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
+    // Extras > Alarm: rows change with Center; Hour / Minutes are set with the wheel (Center starts and
+    // stops, Back stops too).
+    private void buildAlarmSettingsUI() {
+        setSettingsDepth(1);
+        containerSettingsItems.removeAllViews();
+        alarmSettingsChanged = true;
+        final LinearLayout enabledRow = createSettingRow("Alarm", "");
+        final LinearLayout hourRow = createSettingRow("Hour", "");
+        final LinearLayout minuteRow = createSettingRow("Minutes", "");
+        final LinearLayout daysRow = createSettingRow("Repeat", "");
+        final LinearLayout musicRow = createSettingRow("Music", "");
+        final LinearLayout pickRow = createSettingRow("Song", "");
+        final LinearLayout fadeRow = createSettingRow("Gradual Volume", "");
+        final LinearLayout testRow = createSettingRow("Test Alarm", "›");
         final int[] adjusting = { 0 }; // 0 none, 1 hour, 2 minute
         final long[] lastStep = { 0 };
         final Runnable refresh = new Runnable() {
             @Override
             public void run() {
                 int h = prefs.getInt("alarm_hour", 7), m = prefs.getInt("alarm_minute", 30);
-                ((TextView) ((ViewGroup) enabledRow).getChildAt(1)).setText(t("Alarm") + ": "
-                        + (com.themoon.y1.managers.AlarmScheduler.isEnabled(MainActivity.this) ? t("Active") : t("Inactive")));
-                ((TextView) ((ViewGroup) hourRow).getChildAt(1)).setText(t("Hour") + ": "
-                        + (adjusting[0] == 1 ? "◀ " + String.format(Locale.US, "%02d", h) + " ▶" : String.format(Locale.US, "%02d", h)));
-                ((TextView) ((ViewGroup) minuteRow).getChildAt(1)).setText(t("Minutes") + ": "
-                        + (adjusting[0] == 2 ? "◀ " + String.format(Locale.US, "%02d", m) + " ▶" : String.format(Locale.US, "%02d", m)));
-                ((TextView) ((ViewGroup) daysRow).getChildAt(1)).setText(t("Repeat") + ": " + alarmDaysLabel());
-                ((TextView) ((ViewGroup) musicRow).getChildAt(1)).setText(t("Music") + ": "
-                        + (com.themoon.y1.managers.AlarmScheduler.MUSIC_SHUFFLE.equals(
-                                com.themoon.y1.managers.AlarmScheduler.music(MainActivity.this))
-                                ? t("Shuffle All Songs") : t("Resume Last Music")));
-                ((TextView) ((ViewGroup) fadeRow).getChildAt(1)).setText(t("Gradual Volume") + ": "
-                        + (com.themoon.y1.managers.AlarmScheduler.fadeIn(MainActivity.this) ? t("Active") : t("Inactive")));
+                ((TextView) enabledRow.getChildAt(1)).setText(
+                        com.themoon.y1.managers.AlarmScheduler.isEnabled(MainActivity.this) ? t("ON") : t("OFF"));
+                String hh = String.format(Locale.US, "%02d", h), mm = String.format(Locale.US, "%02d", m);
+                ((TextView) hourRow.getChildAt(1)).setText(adjusting[0] == 1 ? "‹ " + hh + " ›" : hh);
+                ((TextView) minuteRow.getChildAt(1)).setText(adjusting[0] == 2 ? "‹ " + mm + " ›" : mm);
+                ((TextView) daysRow.getChildAt(1)).setText(alarmDaysLabel());
+                ((TextView) musicRow.getChildAt(1)).setText(alarmMusicLabel());
+                String music = com.themoon.y1.managers.AlarmScheduler.music(MainActivity.this);
+                boolean song = com.themoon.y1.managers.AlarmScheduler.MUSIC_SONG.equals(music);
+                boolean list = com.themoon.y1.managers.AlarmScheduler.MUSIC_PLAYLIST.equals(music);
+                pickRow.setVisibility(song || list ? View.VISIBLE : View.GONE);
+                if (song) {
+                    String p = com.themoon.y1.managers.AlarmScheduler.song(MainActivity.this);
+                    ((TextView) pickRow.getChildAt(0)).setText(t("Song"));
+                    ((TextView) pickRow.getChildAt(1)).setText(
+                            (p.isEmpty() ? t("Choose") : songLabel(new File(p))) + "  ›");
+                } else if (list) {
+                    String p = com.themoon.y1.managers.AlarmScheduler.playlist(MainActivity.this);
+                    ((TextView) pickRow.getChildAt(0)).setText(t("Playlist"));
+                    ((TextView) pickRow.getChildAt(1)).setText(
+                            (p.isEmpty() ? t("Choose") : com.themoon.y1.managers.M3uPlaylist.displayName(new File(p))) + "  ›");
+                }
+                ((TextView) fadeRow.getChildAt(1)).setText(
+                        com.themoon.y1.managers.AlarmScheduler.fadeIn(MainActivity.this) ? t("ON") : t("OFF"));
             }
         };
         refresh.run();
 
-        enabledRow.setOnKeyListener(wheel);
         enabledRow.setOnClickListener(v -> {
             clickFeedback();
             prefs.edit().putBoolean("alarm_enabled", !com.themoon.y1.managers.AlarmScheduler.isEnabled(this)).commit();
+            com.themoon.y1.managers.AlarmScheduler.schedule(this);
             refresh.run();
         });
         View.OnKeyListener adjustKeys = new View.OnKeyListener() {
             @Override
             public boolean onKey(View v, int keyCode, KeyEvent event) {
                 int which = v == hourRow ? 1 : 2;
-                if (adjusting[0] != which) return wheel.onKey(v, keyCode, event);
-                resetBacklightTimer();
+                if (adjusting[0] != which) return false; // the wheel moves between rows as usual
                 if (keyCode == 21 || keyCode == 22) {
                     if (event.getAction() == KeyEvent.ACTION_DOWN) {
                         long now = android.os.SystemClock.uptimeMillis();
@@ -18691,6 +18861,7 @@ public class MainActivity extends Activity {
                 if (keyCode == KeyEvent.KEYCODE_BACK) {
                     if (event.getAction() == KeyEvent.ACTION_UP) {
                         adjusting[0] = 0;
+                        com.themoon.y1.managers.AlarmScheduler.schedule(MainActivity.this);
                         refresh.run();
                     }
                     return true;
@@ -18703,14 +18874,15 @@ public class MainActivity extends Activity {
         hourRow.setOnClickListener(v -> {
             clickFeedback();
             adjusting[0] = adjusting[0] == 1 ? 0 : 1;
+            com.themoon.y1.managers.AlarmScheduler.schedule(this);
             refresh.run();
         });
         minuteRow.setOnClickListener(v -> {
             clickFeedback();
             adjusting[0] = adjusting[0] == 2 ? 0 : 2;
+            com.themoon.y1.managers.AlarmScheduler.schedule(this);
             refresh.run();
         });
-        daysRow.setOnKeyListener(wheel);
         daysRow.setOnClickListener(v -> {
             clickFeedback();
             String[] order = { com.themoon.y1.managers.AlarmScheduler.DAYS_EVERY,
@@ -18720,63 +18892,136 @@ public class MainActivity extends Activity {
             int i = 0;
             while (i < order.length && !order[i].equals(cur)) i++;
             prefs.edit().putString("alarm_days", order[(i + 1) % order.length]).commit();
+            com.themoon.y1.managers.AlarmScheduler.schedule(this);
             refresh.run();
         });
-        musicRow.setOnKeyListener(wheel);
         musicRow.setOnClickListener(v -> {
             clickFeedback();
-            boolean shuffle = com.themoon.y1.managers.AlarmScheduler.MUSIC_SHUFFLE.equals(
-                    com.themoon.y1.managers.AlarmScheduler.music(this));
-            prefs.edit().putString("alarm_music", shuffle ? com.themoon.y1.managers.AlarmScheduler.MUSIC_RESUME
-                    : com.themoon.y1.managers.AlarmScheduler.MUSIC_SHUFFLE).commit();
+            String[] order = { com.themoon.y1.managers.AlarmScheduler.MUSIC_RESUME,
+                    com.themoon.y1.managers.AlarmScheduler.MUSIC_SHUFFLE, com.themoon.y1.managers.AlarmScheduler.MUSIC_SONG,
+                    com.themoon.y1.managers.AlarmScheduler.MUSIC_PLAYLIST };
+            String cur = com.themoon.y1.managers.AlarmScheduler.music(this);
+            int i = 0;
+            while (i < order.length && !order[i].equals(cur)) i++;
+            prefs.edit().putString("alarm_music", order[(i + 1) % order.length]).commit();
             refresh.run();
         });
-        fadeRow.setOnKeyListener(wheel);
+        pickRow.setOnClickListener(v -> {
+            clickFeedback();
+            if (com.themoon.y1.managers.AlarmScheduler.MUSIC_PLAYLIST.equals(com.themoon.y1.managers.AlarmScheduler.music(this)))
+                buildAlarmPlaylistPickerUI();
+            else
+                buildAlarmSongPickerUI();
+        });
         fadeRow.setOnClickListener(v -> {
             clickFeedback();
             prefs.edit().putBoolean("alarm_fade_in", !com.themoon.y1.managers.AlarmScheduler.fadeIn(this)).commit();
             refresh.run();
         });
-        for (View row : new View[] { enabledRow, hourRow, minuteRow, daysRow, musicRow, fadeRow }) layout.addView(row);
-        addQueueMenuRow(layout, wheel, t("Test Alarm"), v -> {
-            dialog.dismiss();
+        testRow.setOnClickListener(v -> {
+            clickFeedback();
             startAlarmRinging();
         });
-        addQueueMenuRow(layout, wheel, t("Close"), v -> dialog.dismiss());
+        for (View row : new View[] { enabledRow, hourRow, minuteRow, daysRow, musicRow, pickRow, fadeRow, testRow })
+            containerSettingsItems.addView(row);
+        enabledRow.requestFocus();
+    }
 
-        dialog.setOnDismissListener(d -> {
-            com.themoon.y1.managers.AlarmScheduler.schedule(this);
-            long next = com.themoon.y1.managers.AlarmScheduler.nextTrigger(this);
-            if (next > 0) {
-                long mins = Math.max(1, (next - System.currentTimeMillis() + 59999) / 60000);
-                Toast.makeText(this, String.format(Locale.US, t("The alarm will go off in %1$d h %2$d min."),
-                        mins / 60, mins % 60), Toast.LENGTH_LONG).show();
+    // Alarm > Song: the song playing now, plus how to pick any other one from Music.
+    private void buildAlarmSongPickerUI() {
+        setSettingsDepth(2);
+        settingsDepth2Back = this::buildAlarmSettingsUI;
+        containerSettingsItems.removeAllViews();
+        if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
+            final File now = currentPlaylist.get(currentIndex);
+            LinearLayout row = createSettingRow("", t("Playing Now"));
+            ((TextView) row.getChildAt(0)).setText(songLabel(now));
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                prefs.edit().putString("alarm_song", now.getAbsolutePath()).commit();
+                settingsDepth2Back = null;
+                buildAlarmSettingsUI();
+            });
+            containerSettingsItems.addView(row);
+        }
+        String chosen = com.themoon.y1.managers.AlarmScheduler.song(this);
+        if (!chosen.isEmpty()) {
+            LinearLayout row = createSettingRow("", "✓");
+            ((TextView) row.getChildAt(0)).setText(songLabel(new File(chosen)));
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                settingsDepth2Back = null;
+                buildAlarmSettingsUI();
+            });
+            containerSettingsItems.addView(row);
+        }
+        TextView tip = new TextView(this);
+        float d = getResources().getDisplayMetrics().density;
+        tip.setText(t("To choose any song: in Music, hold Play/Pause on it and pick “Use as Alarm”."));
+        tip.setTextColor(ThemeManager.getTextColorSecondary());
+        tip.setTypeface(ThemeManager.getCustomFont());
+        tip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 16 * ThemeManager.textScale() * d);
+        tip.setPadding((int) (8 * d), (int) (10 * d), (int) (8 * d), (int) (6 * d));
+        containerSettingsItems.addView(tip);
+        if (containerSettingsItems.getChildAt(0).isFocusable()) containerSettingsItems.getChildAt(0).requestFocus();
+        else {
+            tip.setFocusable(true); // nothing to pick yet: keep the focus on the page so Back works
+            tip.requestFocus();
+        }
+    }
+
+    // Alarm > Playlist: the playlists in Y1_Playlists.
+    private void buildAlarmPlaylistPickerUI() {
+        setSettingsDepth(2);
+        settingsDepth2Back = this::buildAlarmSettingsUI;
+        containerSettingsItems.removeAllViews();
+        File[] files = com.themoon.y1.managers.M3uPlaylist.DIR.listFiles();
+        List<File> lists = new ArrayList<>();
+        if (files != null)
+            for (File f : files) {
+                String n = f.getName().toLowerCase(Locale.ROOT);
+                if (f.isFile() && (n.endsWith(".m3u") || n.endsWith(".m3u8"))) lists.add(f);
             }
-        });
-        dialog.show();
-        layout.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (layout.getChildCount() > 0) layout.getChildAt(0).requestFocus();
-            }
-        }, 50);
+        java.util.Collections.sort(lists, (x, y) -> x.getName().compareToIgnoreCase(y.getName()));
+        String chosen = com.themoon.y1.managers.AlarmScheduler.playlist(this);
+        View focus = null;
+        for (final File f : lists) {
+            boolean isChosen = f.getAbsolutePath().equals(chosen);
+            LinearLayout row = createSettingRow("", isChosen ? "✓" : "");
+            ((TextView) row.getChildAt(0)).setText(com.themoon.y1.managers.M3uPlaylist.displayName(f));
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                prefs.edit().putString("alarm_playlist", f.getAbsolutePath()).commit();
+                settingsDepth2Back = null;
+                buildAlarmSettingsUI();
+            });
+            containerSettingsItems.addView(row);
+            if (isChosen || focus == null) focus = row;
+        }
+        if (lists.isEmpty()) {
+            LinearLayout row = createSettingRow(t("No playlists yet"), "");
+            containerSettingsItems.addView(row);
+            focus = row;
+        }
+        focus.requestFocus();
     }
 
     private void buildExtrasOverlay() {
         float d = getResources().getDisplayMetrics().density;
         extrasOverlay = new FrameLayout(this);
-        extrasOverlay.setBackgroundColor(Color.BLACK);
+        extrasOverlay.setBackgroundColor(menuDialogBgColor()); // 🚀 [Extras] the theme's colours
         extrasOverlay.setClickable(true);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setGravity(Gravity.CENTER);
         col.setPadding((int) (16 * d), (int) (12 * d), (int) (16 * d), (int) (10 * d));
         extrasOverlay.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        extrasTitle = lockText(16, 0xFF9A9A9F, true);
-        extrasBig = lockText(64, Color.WHITE, true);
-        extrasLine1 = lockText(17, 0xFFD0D0D5, false);
-        extrasLine2 = lockText(15, 0xFF9A9A9F, false);
-        extrasHint = lockText(13, 0xFF9A9A9F, false);
+        int primary = ThemeManager.getTextColorPrimary(), secondary = ThemeManager.getTextColorSecondary();
+        extrasTitle = lockText(16, secondary, true);
+        extrasBig = lockText(64, primary, true);
+        extrasLine1 = lockText(17, primary, false);
+        extrasLine2 = lockText(15, secondary, false);
+        extrasHint = lockText(14, secondary, false);
         for (TextView tv : new TextView[] { extrasTitle, extrasBig, extrasLine1, extrasLine2, extrasHint }) {
             tv.setGravity(Gravity.CENTER);
             col.addView(tv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -18792,8 +19037,17 @@ public class MainActivity extends Activity {
     private void showExtrasOverlay(int mode) {
         if (extrasOverlay == null) buildExtrasOverlay();
         extrasMode = mode;
+        // The clock and the stopwatch sit under the status bar like any other screen (it shows their name);
+        // the ringing alarm takes the whole screen.
+        View statusBar = findViewById(R.id.layout_status_bar);
+        ViewGroup.MarginLayoutParams olp = (ViewGroup.MarginLayoutParams) extrasOverlay.getLayoutParams();
+        olp.topMargin = mode != OVERLAY_ALARM && statusBar != null && statusBar.getVisibility() == View.VISIBLE
+                ? statusBar.getHeight() : 0;
+        extrasOverlay.setLayoutParams(olp);
+        extrasTitle.setVisibility(mode == OVERLAY_ALARM ? View.VISIBLE : View.GONE);
         extrasOverlay.setVisibility(View.VISIBLE);
         extrasOverlay.bringToFront();
+        updateStatusBarTitle();
         resetBacklightTimer();
         refreshExtrasOverlay();
         extrasHandler.removeCallbacks(extrasTick);
@@ -18804,6 +19058,10 @@ public class MainActivity extends Activity {
         extrasHandler.removeCallbacks(extrasTick);
         if (extrasOverlay != null) extrasOverlay.setVisibility(View.GONE);
         extrasMode = 0;
+        updateStatusBarTitle();
+        // back on the Extras page: refresh its values (stopwatch time, alarm)
+        if (currentScreenState == STATE_SETTINGS && settingsSection == SS_EXTRAS && currentSettingsDepth == 0)
+            buildSettingsUI();
     }
 
     private void refreshExtrasOverlay() {
@@ -18833,13 +19091,18 @@ public class MainActivity extends Activity {
             }
             extrasLine1.setText(laps.toString());
             extrasLine2.setText("");
-            extrasHint.setText(swRunning ? t("Center: pause   ·   ⏭: lap   ·   Back: close")
-                    : t("Center: start   ·   ⏮: reset   ·   Back: close"));
+            // The Y1's font has no ⏭ / ⏮ symbols: the buttons are named in words.
+            if (swRunning)
+                extrasHint.setText(t("Center: pause   ·   Next: lap") + "\n" + t("Back: leave (it keeps running)"));
+            else if (swAccumulated > 0)
+                extrasHint.setText(t("Center: resume   ·   Previous: reset") + "\n" + t("Back: leave"));
+            else
+                extrasHint.setText(t("Center: start") + "\n" + t("Back: leave"));
         } else if (extrasMode == OVERLAY_ALARM) {
             extrasTitle.setText("⏰ " + t("Alarm"));
             extrasBig.setText(clock);
             extrasLine1.setText(longDate(now));
-            extrasLine2.setText(String.format(Locale.US, t("⏯: snooze %d min"), com.themoon.y1.managers.AlarmScheduler.SNOOZE_MINUTES));
+            extrasLine2.setText(String.format(Locale.US, t("Play/Pause: snooze %d min"), com.themoon.y1.managers.AlarmScheduler.SNOOZE_MINUTES));
             extrasHint.setText(t("Center: stop the music   ·   Back: keep listening"));
         }
     }
@@ -18916,16 +19179,41 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
         boolean fade = com.themoon.y1.managers.AlarmScheduler.fadeIn(this);
         am.setFadeFactor(fade ? 0.15f : 1f);
-        boolean resume = com.themoon.y1.managers.AlarmScheduler.MUSIC_RESUME.equals(
-                com.themoon.y1.managers.AlarmScheduler.music(this));
+        String music = com.themoon.y1.managers.AlarmScheduler.music(this);
+        boolean resume = com.themoon.y1.managers.AlarmScheduler.MUSIC_RESUME.equals(music);
+        List<File> playlistSongs = null;
+        if (com.themoon.y1.managers.AlarmScheduler.MUSIC_PLAYLIST.equals(music)) {
+            try {
+                File pl = new File(com.themoon.y1.managers.AlarmScheduler.playlist(this));
+                if (pl.isFile()) playlistSongs = loadPlaylist(pl).playableFiles();
+            } catch (Exception e) {
+                playlistSongs = null;
+            }
+        }
+        File song = null;
+        if (com.themoon.y1.managers.AlarmScheduler.MUSIC_SONG.equals(music)) {
+            song = new File(com.themoon.y1.managers.AlarmScheduler.song(this));
+            if (!song.isFile()) song = null;
+        }
         if (resume && am.hasActivePlayer() && !currentPlaylist.isEmpty()) {
             if (!am.isPlaying()) am.playOrPauseMusic();
+        } else if (playlistSongs != null && !playlistSongs.isEmpty()) {
+            // a playlist: in order, or shuffled when Shuffle is on
+            if (isShuffleMode) playlistSongs = com.themoon.y1.managers.ShuffleHelper.shuffle(playlistSongs,
+                    playlistSongs.get(new java.util.Random().nextInt(playlistSongs.size())),
+                    com.themoon.y1.managers.ShuffleHelper.BY_SONGS);
+            am.playTrackList(playlistSongs, 0);
         } else if (!customLibrary.isEmpty()) {
+            // the whole library shuffled; a chosen song goes first
             List<File> all = new ArrayList<>();
             for (SongItem s : customLibrary) all.add(s.file);
-            File first = all.get(new java.util.Random().nextInt(all.size()));
+            File first = song != null ? song : all.get(new java.util.Random().nextInt(all.size()));
             List<File> shuffled = com.themoon.y1.managers.ShuffleHelper.shuffle(all, first,
                     com.themoon.y1.managers.ShuffleHelper.BY_SONGS);
+            if (song != null && (shuffled.isEmpty() || !shuffled.get(0).equals(song))) {
+                shuffled.remove(song);
+                shuffled.add(0, song);
+            }
             am.playTrackList(shuffled, 0);
         }
         if (fade) {
@@ -19505,7 +19793,7 @@ public class MainActivity extends Activity {
 
     // 💡 [지능형 버그 수리 완결] 상단 헤더를 제거하고, 중간 메뉴 제어 시 포커스 락을 완벽하게 유지하는 에디터 서브 메뉴
     private void buildMainMenuVisibilitySettingsUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
 
         // ❌ 아티스트님의 요청에 따라 상단 카테고리 헤더 텍스트("━ SHOW / HIDE MENUS ━")를 흔적도 없이 완전히 삭제했습니다!
@@ -19656,7 +19944,7 @@ public class MainActivity extends Activity {
     }
 
     private void buildMusicMenuVisibilitySettingsUI() {
-        currentSettingsDepth = 1;
+        setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
 
         if (materialIconFont == null) {
@@ -19792,7 +20080,7 @@ public class MainActivity extends Activity {
 
     // 🚀 [신규 엔진] 저장된 라디오 채널들을 한눈에 보고 삭제/이동할 수 있는 전용 관리 스튜디오!
     private void buildRadioSavedChannelsUI() {
-        currentSettingsDepth = 2; // 💡 깊이(Depth) 2로 설정하여 뒤로 가기 시 라디오 설정창으로 복귀하게 만듭니다.
+        setSettingsDepth(2); // 💡 깊이(Depth) 2로 설정하여 뒤로 가기 시 라디오 설정창으로 복귀하게 만듭니다.
         containerSettingsItems.removeAllViews();
         createCategoryHeader("━ " + t("SAVED CHANNELS") + " ━");
 
@@ -20693,7 +20981,7 @@ public class MainActivity extends Activity {
     // 📱 [신규 엔진] 기기에 설치된 모든 앱을 불러오는 앱 서랍(App Drawer)
     // =======================================================
     private void buildAppDrawerUI() {
-        currentSettingsDepth = 1; // 🚀 메인 설정 밖으로 나왔음을 시스템에 알림
+        setSettingsDepth(1); // 🚀 메인 설정 밖으로 나왔음을 시스템에 알림
         containerSettingsItems.removeAllViews();
 
         final android.content.pm.PackageManager pm = getPackageManager();
@@ -20762,7 +21050,7 @@ public class MainActivity extends Activity {
     // 🎥 [신규 엔진] 화면 녹화 전용 스튜디오 (Sub-Menu)
     // =======================================================
     private void buildRecordingSettingsUI() {
-        currentSettingsDepth = 1; // 🚀 메인 설정 밖으로 나왔음을 시스템에 알림
+        setSettingsDepth(1); // 🚀 메인 설정 밖으로 나왔음을 시스템에 알림
         containerSettingsItems.removeAllViews();
 
         // 1. [녹화 시작] 매크로 (앱 실행 + 유령 터치)

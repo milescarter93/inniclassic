@@ -203,6 +203,13 @@ public final class M3uPlaylist {
         return out;
     }
 
+    // The songs that exist, in order (the music alarm plays a playlist with this).
+    public List<File> playableFiles() {
+        List<File> out = new ArrayList<>();
+        for (Entry e : entries) if (e.playable) out.add(e.target);
+        return out;
+    }
+
     public int missingCount() {
         int n = 0;
         for (Entry e : entries) if (!e.playable) n++;

@@ -19,7 +19,10 @@ public final class AlarmScheduler {
 
     public static final String DAYS_EVERY = "every", DAYS_WEEKDAYS = "weekdays", DAYS_WEEKENDS = "weekends",
             DAYS_ONCE = "once";
-    public static final String MUSIC_RESUME = "resume", MUSIC_SHUFFLE = "shuffle";
+    // What plays: the last queue, the whole library shuffled, one chosen song (then the library shuffled)
+    // or a playlist.
+    public static final String MUSIC_RESUME = "resume", MUSIC_SHUFFLE = "shuffle", MUSIC_SONG = "song",
+            MUSIC_PLAYLIST = "playlist";
     public static final int SNOOZE_MINUTES = 9;
 
     private static SharedPreferences prefs(Context c) {
@@ -44,6 +47,14 @@ public final class AlarmScheduler {
 
     public static String music(Context c) {
         return prefs(c).getString("alarm_music", MUSIC_RESUME);
+    }
+
+    public static String song(Context c) {
+        return prefs(c).getString("alarm_song", "");
+    }
+
+    public static String playlist(Context c) {
+        return prefs(c).getString("alarm_playlist", "");
     }
 
     public static boolean fadeIn(Context c) {
