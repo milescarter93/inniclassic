@@ -655,5 +655,8 @@
   "The alarm will play “%s”.": "La alarma sonará con «%s».",
   "To choose any song: in Music, hold Play/Pause on it and pick “Use as Alarm”.": "Para elegir cualquier canción: en Música, mantén Reproducir/Pausa sobre ella y elige «Usar como alarma».",
   "Use as Alarm": "Usar como alarma",
-  "Playing Now": "Suena ahora"
+  "Playing Now": "Suena ahora",
+  "Main Menu": "Menú principal",
+  "This theme can't be previewed.": "No se puede previsualizar este tema.",
+  "Wheel: screens  ·  Previous/Next: theme  ·  Center: apply  ·  Back: close": "Rueda: pantallas  ·  Retroceder/Adelante: tema  ·  Central: aplicar  ·  Atrás: salir"
 }

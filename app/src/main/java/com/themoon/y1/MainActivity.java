@@ -4437,115 +4437,560 @@ public class MainActivity extends Activity {
     }
 
     // =======================================================
-    // 🚀 [Themes] Preview before applying: a small mock-up of the main menu drawn with the theme's own
-    // background, colours, font, button shape and menu entries, with Apply / Cancel.
+    // 🚀 [Themes] Full-screen preview before applying: the theme drawn at real size with its own rules -
+    // ThemeManager is switched to it only while the preview's views are built and then switched back, so
+    // nothing is applied and nothing restarts. Three screens: Main Menu (the theme's own layout, widgets
+    // and icons), Music and Settings.
+    // Wheel: screens · Previous / Next: other themes · Center: apply · Back: close.
     // =======================================================
+    private static final String[] THEME_PREVIEW_PAGES = { "Main Menu", "Music", "Settings" };
+    private FrameLayout themePreviewOverlay;
+    private int themePreviewIndex, themePreviewPage;
+    private Bitmap themePreviewCover;
+
     private void showThemePreview(final int index) {
-        final ThemeManager.ThemeData t = ThemeManager.availableThemes.get(index);
-        float d = getResources().getDisplayMetrics().density;
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(menuDialogBgColor());
-        final LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        scrollView.addView(layout);
-        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setView(scrollView)
-                .create();
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        View.OnKeyListener wheel = dialogWheelKeyListener(layout);
-
-        TextView title = new TextView(this);
-        title.setText(t.name);
-        title.setTextColor(ThemeManager.getTextColorPrimary());
-        title.setTextSize(17);
-        title.setTypeface(ThemeManager.getCustomFontBold());
-        title.setPadding((int) (10 * d), (int) (8 * d), (int) (10 * d), (int) (6 * d));
-        layout.addView(title);
-        layout.addView(buildThemeMockup(t), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (int) (150 * d)));
-
-        boolean current = ThemeManager.getCurrentThemeIndex() == index;
-        addQueueMenuRow(layout, wheel, current ? t("In Use") : t("Apply"), v -> {
-            dialog.dismiss();
-            if (ThemeManager.getCurrentThemeIndex() != index) applyThemeAt(index);
-        });
-        addQueueMenuRow(layout, wheel, t("Cancel"), v -> dialog.dismiss());
-        dialog.show();
-        layout.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (layout.getChildCount() > 2) layout.getChildAt(2).requestFocus();
-            }
-        }, 50);
+        if (themePreviewOverlay == null) {
+            themePreviewOverlay = new FrameLayout(this);
+            themePreviewOverlay.setBackgroundColor(Color.BLACK);
+            themePreviewOverlay.setClickable(true);
+            ((ViewGroup) findViewById(android.R.id.content)).addView(themePreviewOverlay,
+                    new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        themePreviewIndex = index;
+        themePreviewPage = 0;
+        themePreviewOverlay.setVisibility(View.VISIBLE);
+        themePreviewOverlay.bringToFront();
+        renderThemePreview();
     }
 
-    private View buildThemeMockup(ThemeManager.ThemeData t) {
-        float d = getResources().getDisplayMetrics().density;
-        FrameLayout box = new FrameLayout(this);
-        box.setBackgroundColor(0xFF000000);
+    private boolean isThemePreviewShowing() {
+        return themePreviewOverlay != null && themePreviewOverlay.getVisibility() == View.VISIBLE;
+    }
 
-        // Background: the theme's own picture if it has one.
-        File bg = null;
-        if (t.bgImage != null && !t.bgImage.isEmpty()) bg = new File(t.folderPath, t.bgImage);
-        if (bg == null || !bg.exists()) bg = new File(t.folderPath, "background.png");
-        if (!bg.exists()) bg = new File(t.folderPath, "bg.png");
-        if (bg.exists()) {
-            Bitmap bmp = ThemeManager.decodeThemeImage(bg);
-            if (bmp != null) {
-                ImageView iv = new ImageView(this);
-                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                iv.setImageBitmap(bmp);
-                box.addView(iv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    private void closeThemePreview() {
+        themePreviewOverlay.setVisibility(View.GONE);
+        themePreviewOverlay.removeAllViews();
+        themePreviewCover = null;
+        // back on the list, on the theme that was being looked at
+        if (currentScreenState == STATE_SETTINGS && themePreviewIndex < containerSettingsItems.getChildCount())
+            containerSettingsItems.getChildAt(themePreviewIndex).requestFocus();
+    }
+
+    private void handleThemePreviewKey(KeyEvent event) {
+        int key = event.getKeyCode();
+        resetBacklightTimer();
+        if (key == 21 || key == 22) { // the wheel: the next / previous screen
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                themePreviewPage = (themePreviewPage + (key == 22 ? 1 : -1) + THEME_PREVIEW_PAGES.length)
+                        % THEME_PREVIEW_PAGES.length;
+                clickFeedback();
+                renderThemePreview();
             }
+            return;
         }
+        if (event.getAction() != KeyEvent.ACTION_UP || event.isCanceled()) return;
+        int count = ThemeManager.availableThemes.size();
+        if ((key == KeyEvent.KEYCODE_MEDIA_NEXT || key == 87 || key == KeyEvent.KEYCODE_MEDIA_PREVIOUS || key == 88)
+                && count > 1) {
+            int step = key == KeyEvent.KEYCODE_MEDIA_NEXT || key == 87 ? 1 : -1;
+            themePreviewIndex = (themePreviewIndex + step + count) % count;
+            clickFeedback();
+            renderThemePreview();
+        } else if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
+            clickFeedback();
+            int index = themePreviewIndex;
+            closeThemePreview();
+            if (index != ThemeManager.getCurrentThemeIndex()) applyThemeAt(index);
+        } else if (key == KeyEvent.KEYCODE_BACK) {
+            clickFeedback();
+            closeThemePreview();
+        }
+    }
 
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        box.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    private void renderThemePreview() {
+        themePreviewOverlay.removeAllViews();
+        if (themePreviewIndex >= ThemeManager.availableThemes.size()) themePreviewIndex = 0;
+        ThemeManager.ThemeData theme = ThemeManager.availableThemes.get(themePreviewIndex);
+        int original = ThemeManager.getCurrentThemeIndex();
+        ThemeManager.setThemeIndex(themePreviewIndex);
+        try {
+            View page = themePreviewPage == 0 ? buildPreviewMainMenu(theme) : buildPreviewListPage(theme, themePreviewPage == 1);
+            themePreviewOverlay.addView(page, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+        } catch (Throwable e) {
+            android.util.Log.w("Y1Themes", "Preview failed for " + theme.name, e);
+            TextView err = new TextView(this);
+            err.setText(t("This theme can't be previewed."));
+            err.setTextColor(Color.WHITE);
+            err.setGravity(Gravity.CENTER);
+            themePreviewOverlay.addView(err, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+        } finally {
+            ThemeManager.setThemeIndex(original);
+        }
+        themePreviewOverlay.addView(buildPreviewFooter(theme), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+    }
 
-        TextView status = new TextView(this);
-        status.setText("iPod");
-        status.setTextSize(11);
-        status.setTextColor(t.textPrimary);
-        status.setBackgroundColor(t.statusBarBg);
-        status.setPadding((int) (6 * d), (int) (2 * d), (int) (6 * d), (int) (2 * d));
-        if (t.customFont != null) status.setTypeface(t.customFont);
-        col.addView(status);
+    // The name, the screen and the keys, over the bottom of the preview; it fades out so the theme can be
+    // seen whole, and comes back with every key.
+    private View buildPreviewFooter(ThemeManager.ThemeData theme) {
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackgroundColor(0xD0000000);
+        box.setPadding((int) (8 * d), (int) (4 * d), (int) (8 * d), (int) (5 * d));
+        TextView name = new TextView(this);
+        String inUse = themePreviewIndex == ThemeManager.getCurrentThemeIndex() ? "  ·  " + t("In Use") : "";
+        name.setText(theme.name + "  ·  " + t(THEME_PREVIEW_PAGES[themePreviewPage]) + inUse + "   "
+                + (themePreviewIndex + 1) + "/" + ThemeManager.availableThemes.size());
+        name.setTextColor(Color.WHITE);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextSize(14);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView keys = new TextView(this);
+        keys.setText(t("Wheel: screens  ·  Previous/Next: theme  ·  Center: apply  ·  Back: close"));
+        keys.setTextColor(0xFFBBBBBB);
+        keys.setTextSize(11);
+        keys.setSingleLine(true);
+        keys.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        box.addView(name);
+        box.addView(keys);
+        box.animate().alpha(0f).setStartDelay(3500).setDuration(600).start();
+        return box;
+    }
 
-        // The theme's own menu entries, in their order (the first one focused).
-        List<ThemeManager.MenuElement> buttons = new ArrayList<>();
-        for (ThemeManager.MenuElement el : t.menuElements) if ("button".equals(el.type)) buttons.add(el);
+    private Bitmap previewCover() {
+        if (themePreviewCover == null) {
+            try {
+                if (lastAlbumArtBytes != null && lastAlbumArtBytes.length > 0) {
+                    BitmapFactory.Options opts = new BitmapFactory.Options();
+                    opts.inSampleSize = 2;
+                    themePreviewCover = BitmapFactory.decodeByteArray(lastAlbumArtBytes, 0, lastAlbumArtBytes.length, opts);
+                }
+            } catch (Throwable ignored) {
+            }
+            if (themePreviewCover == null)
+                themePreviewCover = BitmapFactory.decodeResource(getResources(), R.drawable.default_album);
+        }
+        return themePreviewCover;
+    }
+
+    // The background the theme would have: its own picture, or else the one in use now (custom or the
+    // blurred cover), tinted like the real screen.
+    private ImageView buildPreviewBackground(ThemeManager.ThemeData theme) {
+        ImageView bg = new ImageView(this);
+        bg.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        Bitmap own = null;
+        if (theme.bgImage != null && !theme.bgImage.isEmpty()) {
+            File f = new File(theme.folderPath, theme.bgImage);
+            if (f.exists()) own = ThemeManager.decodeThemeImage(f);
+        }
+        if (own == null) own = ThemeManager.getCustomIcon("background.png", this, 0);
+        if (own == null) own = ThemeManager.getCustomIcon("bg.png", this, 0);
+        if (own != null) bg.setImageBitmap(own);
+        else if (ivMainBg != null && ivMainBg.getDrawable() != null && ivMainBg.getDrawable().getConstantState() != null)
+            bg.setImageDrawable(ivMainBg.getDrawable().getConstantState().newDrawable().mutate());
+        else bg.setImageResource(R.drawable.default_back);
+        int softTint = (ThemeManager.getOverlayBackgroundColor() & 0x00FFFFFF) | 0x66000000;
+        bg.setColorFilter(softTint, android.graphics.PorterDuff.Mode.SRC_ATOP);
+        return bg;
+    }
+
+    private View buildPreviewStatusBar(String title) {
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackground(createStatusBarBackground());
+        bar.setPadding((int) (8 * d), 0, (int) (8 * d), 0);
+        int primary = ThemeManager.getTextColorPrimary();
+        TextView tv = new TextView(this);
+        tv.setText(title);
+        tv.setTextColor(primary);
+        tv.setTextSize(13);
+        tv.setSingleLine(true);
+        bar.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (isBatteryPercentOn && batteryLevelPct >= 0) {
+            TextView pct = new TextView(this);
+            pct.setText(batteryLevelPct + "%");
+            pct.setTextColor(primary);
+            pct.setTextSize(13);
+            bar.addView(pct);
+        }
+        BatteryIconView battery = new BatteryIconView(this);
+        battery.setColor(primary);
+        battery.setBatteryLevel(Math.max(0, batteryLevelPct), batteryPlugged != 0);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams((int) (30 * d), (int) (16 * d));
+        blp.leftMargin = (int) (6 * d);
+        bar.addView(battery, blp);
+        return bar;
+    }
+
+    // Main Menu: the theme's own elements, as buildDynamicMainMenuUI draws them, with the first entry
+    // selected (and the widgets that go with it).
+    private View buildPreviewMainMenu(ThemeManager.ThemeData theme) {
+        final float density = getResources().getDisplayMetrics().density;
+        int top = (int) (ClassicMenuStyle.STATUS_HEIGHT_DP * density);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(buildPreviewBackground(theme), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout canvas = new FrameLayout(this);
+        canvas.setBackgroundColor(ThemeManager.getOverlayBackgroundColor());
+        canvas.setClipChildren(false);
+        root.addView(canvas, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        final List<ThemeManager.MenuElement> buttons = new ArrayList<>();
+        List<ThemeManager.MenuElement> widgets = new ArrayList<>();
+        for (ThemeManager.MenuElement el : theme.menuElements) {
+            if ("button".equals(el.type)) {
+                if (!prefs.getBoolean("hide_btn_" + el.id, false)) buttons.add(el);
+            } else widgets.add(el);
+        }
+        final String savedOrder = prefs.getString("custom_menu_order_" + theme.name, "");
+        final List<String> order = java.util.Arrays.asList(savedOrder.split(","));
         java.util.Collections.sort(buttons, new java.util.Comparator<ThemeManager.MenuElement>() {
             @Override
             public int compare(ThemeManager.MenuElement a, ThemeManager.MenuElement b) {
+                int ia = savedOrder.isEmpty() ? -1 : order.indexOf(a.id), ib = savedOrder.isEmpty() ? -1 : order.indexOf(b.id);
+                if (ia != -1 && ib != -1) return ia - ib;
+                if (ia != -1) return -1;
+                if (ib != -1) return 1;
                 return a.focusIndex - b.focusIndex;
             }
         });
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setBackgroundColor(t.bgOverlay);
-        list.setPadding((int) (4 * d), (int) (4 * d), (int) (4 * d), (int) (4 * d));
-        col.addView(list, new LinearLayout.LayoutParams((int) (170 * d), ViewGroup.LayoutParams.MATCH_PARENT));
-        for (int i = 0; i < Math.min(5, buttons.size()); i++) {
-            ThemeManager.MenuElement el = buttons.get(i);
-            TextView row = new TextView(this);
-            String label = el.textNormal != null && !el.textNormal.isEmpty() ? t(el.textNormal) : el.id;
-            row.setText(label);
-            row.setTextSize(14);
-            row.setSingleLine(true);
-            row.setPadding((int) (6 * d), (int) (3 * d), (int) (6 * d), (int) (3 * d));
-            Typeface face = i == 0 && t.customFontBold != null ? t.customFontBold : t.customFont;
-            if (face != null) row.setTypeface(face, i == 0 && t.customFontBold == null ? Typeface.BOLD : Typeface.NORMAL);
-            GradientDrawable shape = new GradientDrawable();
-            shape.setCornerRadius(t.buttonRadius * d);
-            shape.setColor(i == 0 ? t.btnFocused : t.btnNormal);
-            row.setBackground(shape);
-            row.setTextColor(i == 0 ? t.btnFocusedText : t.textPrimary);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = (int) (2 * d);
-            list.addView(row, lp);
+        ThemeManager.MenuElement focused = buttons.isEmpty() ? null : buttons.get(0);
+        String focusedId = focused != null ? focused.id : "";
+
+        java.util.HashMap<String, LinearLayout> lists = new java.util.HashMap<>();
+        boolean liveWidgetForFocus = false;
+        ImageView focusImage = null;
+        for (ThemeManager.MenuElement el : widgets) {
+            if (el.visibleOnFocus != null && !el.visibleOnFocus.trim().isEmpty() && !el.visibleOnFocus.equals(focusedId))
+                continue; // belongs to another entry
+            if (el.visibleOnFocus != null && el.visibleOnFocus.equals(focusedId)) liveWidgetForFocus = true;
+            GradientDrawable widgetBg = createWidgetBackground(el.bgColor, el.radius);
+            int pad = (int) (el.padding * density);
+            if ("list_box".equals(el.type)) {
+                ScrollView sv = new ScrollView(this);
+                sv.setLayoutParams(createDynamicLayoutParams(el, density, top));
+                sv.setVerticalScrollBarEnabled(false);
+                sv.setFocusable(false);
+                if (widgetBg != null) sv.setBackground(widgetBg);
+                LinearLayout inner = new LinearLayout(this);
+                inner.setOrientation(LinearLayout.VERTICAL);
+                inner.setPadding(pad, pad, pad, pad);
+                sv.addView(inner, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
+                canvas.addView(sv);
+                lists.put(el.id, inner);
+                View shadow = new View(this);
+                shadow.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                        new int[] { 0x50000000, 0x00000000 }));
+                FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams((int) (10 * density), (int) (el.height * density));
+                slp.leftMargin = (int) ((el.x + el.width) * density);
+                slp.topMargin = (int) (el.y * density) + top;
+                canvas.addView(shadow, slp);
+            } else if ("box".equals(el.type)) {
+                ImageView box = new ImageView(this);
+                box.setLayoutParams(createDynamicLayoutParams(el, density));
+                box.setBackground(widgetBg != null ? widgetBg : createWidgetBackground("#00000000", el.radius));
+                String img = el.iconNormal != null && !el.iconNormal.isEmpty() ? el.iconNormal : el.textNormal;
+                if (img != null && !img.isEmpty() && !img.equals("New Item")) {
+                    Bitmap bmp = ThemeManager.getCustomIcon(img, this, 0);
+                    if (bmp != null) {
+                        box.setImageBitmap(bmp);
+                        box.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                    }
+                }
+                canvas.addView(box);
+            } else if ("widget_clock".equals(el.type)) {
+                TextView clock = new TextView(this);
+                clock.setGravity(Gravity.CENTER);
+                clock.setLayoutParams(createDynamicLayoutParams(el, density));
+                clock.setTextColor(ThemeManager.getTextColorPrimary());
+                clock.setTypeface(ThemeManager.getCustomFontBold());
+                clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (el.textSize > 0 ? el.textSize : 48f) * density);
+                java.util.Calendar now = java.util.Calendar.getInstance();
+                clock.setText(fmtClock(now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE)));
+                if (widgetBg != null) clock.setBackground(widgetBg);
+                clock.setPadding(pad, pad, pad, pad);
+                canvas.addView(clock);
+            } else if ("widget_battery".equals(el.type)) {
+                WidgetBatteryBarView bar = new WidgetBatteryBarView(this);
+                bar.setLayoutParams(createDynamicLayoutParams(el, density));
+                bar.setPadding(pad, pad, pad, pad);
+                bar.setBatteryLevel(Math.max(0, batteryLevelPct), batteryPlugged != 0);
+                canvas.addView(bar);
+            } else if ("widget_album".equals(el.type)) {
+                boolean horizontal = "left".equalsIgnoreCase(el.textPosition) || "right".equalsIgnoreCase(el.textPosition);
+                LinearLayout album = new LinearLayout(this);
+                album.setOrientation(horizontal ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+                album.setGravity(Gravity.CENTER);
+                album.setLayoutParams(createDynamicLayoutParams(el, density));
+                if (widgetBg != null) album.setBackground(widgetBg);
+                album.setPadding(pad, pad, pad, pad);
+                ImageView cover = new ImageView(this);
+                cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                cover.setImageBitmap(previewCover());
+                int size = horizontal ? (int) ((el.height - el.padding * 2) * density)
+                        : (int) ((el.height - el.padding * 2) * 0.65f * density);
+                if (size <= 0) size = (int) (110 * density);
+                LinearLayout texts = new LinearLayout(this);
+                texts.setOrientation(LinearLayout.VERTICAL);
+                texts.setGravity(Gravity.CENTER);
+                TextView title = new TextView(this), artist = new TextView(this);
+                title.setText(tvPlayerTitle != null ? tvPlayerTitle.getText() : "");
+                artist.setText(tvPlayerArtist != null ? tvPlayerArtist.getText() : "");
+                title.setTextColor(ThemeManager.getTextColorPrimary());
+                artist.setTextColor(ThemeManager.getTextColorSecondary());
+                title.setTypeface(ThemeManager.getCustomFontBold());
+                artist.setTypeface(ThemeManager.getCustomFont());
+                title.setTextSize(el.textSize > 0 ? el.textSize : 16);
+                artist.setTextSize(el.textSecondarySize > 0 ? el.textSecondarySize : 12);
+                for (TextView tv : new TextView[] { title, artist }) {
+                    tv.setSingleLine(true);
+                    tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    texts.addView(tv);
+                }
+                LinearLayout.LayoutParams textsLp = horizontal
+                        ? new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        : new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+                boolean textFirst = "left".equalsIgnoreCase(el.textPosition) || "top".equalsIgnoreCase(el.textPosition);
+                if (textFirst) {
+                    album.addView(texts, textsLp);
+                    album.addView(cover, new LinearLayout.LayoutParams(size, size));
+                } else {
+                    album.addView(cover, new LinearLayout.LayoutParams(size, size));
+                    album.addView(texts, textsLp);
+                }
+                canvas.addView(album);
+            } else if ("widget_analog_clock".equals(el.type)) {
+                CustomAnalogClockView analog = new CustomAnalogClockView(this);
+                analog.setLayoutParams(createDynamicLayoutParams(el, density));
+                analog.setPadding(pad, pad, pad, pad);
+                if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
+                    try {
+                        analog.setClockBackgroundColor(Color.parseColor(el.bgColor.trim()));
+                    } catch (Exception ignored) {
+                    }
+                }
+                canvas.addView(analog);
+            } else if ("widget_circular_battery".equals(el.type)) {
+                CircularBatteryView circle = new CircularBatteryView(this);
+                circle.setLayoutParams(createDynamicLayoutParams(el, density));
+                circle.setPadding(pad, pad, pad, pad);
+                if (el.textSize > 0) circle.setCustomTextSize(el.textSize * density);
+                circle.setBatteryLevel(Math.max(0, batteryLevelPct), batteryPlugged != 0);
+                canvas.addView(circle);
+            } else if ("widget_focus_image".equals(el.type)) {
+                focusImage = new ImageView(this);
+                focusImage.setLayoutParams(createDynamicLayoutParams(el, density));
+                focusImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                if (widgetBg != null) focusImage.setBackground(widgetBg);
+                focusImage.setPadding(pad, pad, pad, pad);
+                canvas.addView(focusImage);
+            } else if ("widget_animated_cover".equals(el.type)) {
+                // in its own clipping box, as on the real screen (the canvas doesn't clip its children, and
+                // a centre-cropped cover would spill over the menu)
+                FrameLayout coverBox = new FrameLayout(this);
+                ImageView cover = new ImageView(this);
+                cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                cover.setImageBitmap(previewCover());
+                coverBox.addView(cover, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+                FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT);
+                clp.leftMargin = (int) (el.x * density);
+                canvas.addView(coverBox, clp);
+            }
         }
-        return box;
+        // the selected entry's own picture, when no widget goes with it
+        if (focusImage != null && !liveWidgetForFocus && focused != null && focused.previewImage != null
+                && !focused.previewImage.isEmpty())
+            focusImage.setImageBitmap(ThemeManager.getCustomIcon(focused.previewImage, this, 0));
+
+        for (int i = 0; i < buttons.size(); i++) {
+            ThemeManager.MenuElement el = buttons.get(i);
+            View btn = buildPreviewMenuButton(el, i == 0, density);
+            if (el.parentId != null && !el.parentId.isEmpty() && lists.containsKey(el.parentId)) {
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                        el.height > 0 ? (int) (el.height * density) : LinearLayout.LayoutParams.WRAP_CONTENT);
+                if (ThemeManager.largeText && lp.height > 0) lp.height = Math.round(lp.height * ThemeManager.textScale());
+                lp.setMargins((int) (el.x * density), (int) (el.y * density), (int) (el.x * density), 0);
+                lists.get(el.parentId).addView(btn, lp);
+            } else {
+                canvas.addView(btn, createDynamicLayoutParams(el, density));
+            }
+        }
+
+        // the main menu's status bar only spans the menu column, as on the real screen
+        FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams((int) (ClassicMenuStyle.PANE_WIDTH_DP * density), top);
+        root.addView(buildPreviewStatusBar("iPod"), barLp);
+        return root;
+    }
+
+    // One main menu entry, drawn like buildDynamicMainMenuUI does (selected or not).
+    private View buildPreviewMenuButton(ThemeManager.MenuElement el, boolean selected, float density) {
+        LinearLayout btn = new LinearLayout(this);
+        btn.setOrientation(LinearLayout.HORIZONTAL);
+        TextView main = new TextView(this), right = new TextView(this);
+        for (TextView tv : new TextView[] { main, right }) {
+            tv.setSingleLine(true);
+            tv.setIncludeFontPadding(false);
+            tv.setPadding(0, 0, 0, 0);
+        }
+        main.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        boolean iconOnly = el.textNormal == null || el.textNormal.trim().isEmpty();
+        int iconSize;
+        if (iconOnly) {
+            int w = el.width > 0 ? el.width : 50, h = el.height > 0 ? el.height : 50;
+            int tmp = (int) (Math.min(w, h) * density) - (int) (el.padding * density) * 2;
+            iconSize = tmp > 0 ? tmp : (int) (10 * density);
+        } else {
+            iconSize = (int) ((el.height > 0 ? el.height : 50) * density * 0.5f);
+        }
+        int gravity = Gravity.LEFT | Gravity.CENTER_VERTICAL;
+        if (el.textAlign != null && !el.textAlign.isEmpty()) {
+            String ta = el.textAlign.toLowerCase(Locale.ROOT);
+            if (ta.equals("center")) gravity = Gravity.CENTER;
+            else if (ta.equals("right")) gravity = Gravity.RIGHT | Gravity.CENTER_VERTICAL;
+            else if (ta.equals("top")) gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            else if (ta.equals("bottom")) gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        } else if (el.gravity != null && el.gravity.toLowerCase(Locale.ROOT).contains("center")) {
+            gravity = Gravity.CENTER;
+        }
+        int customPad = (int) (el.padding * density);
+        if (iconOnly) {
+            btn.setGravity(Gravity.CENTER);
+            btn.setPadding(customPad, customPad, customPad, customPad);
+        } else {
+            btn.setGravity(Gravity.CENTER_VERTICAL);
+            main.setGravity(gravity);
+            right.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+            if (el.textAlign != null && (el.textAlign.equalsIgnoreCase("top") || el.textAlign.equalsIgnoreCase("bottom"))) {
+                int v = el.padding > 0 ? customPad : (int) (15 * density);
+                btn.setPadding(customPad, v, customPad, v);
+            } else {
+                int hp = el.padding > 0 ? customPad : (int) (8 * density);
+                btn.setPadding(hp, customPad, hp, customPad);
+            }
+            boolean scaleRow = ThemeManager.largeText && el.parentId != null && !el.parentId.isEmpty();
+            float rowScale = scaleRow ? ThemeManager.textScale() : 1f;
+            float mainSize = el.textSize > 0 ? el.textSize : 16;
+            float rightSize = el.textSecondarySize > 0 ? el.textSecondarySize : mainSize;
+            main.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, mainSize * rowScale * density);
+            right.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, rightSize * rowScale * density);
+            main.setText(t(el.textNormal));
+            right.setText(el.textRight != null ? t(el.textRight) : "");
+        }
+        main.setTypeface(ThemeManager.getCustomFontBold());
+        right.setTypeface(ThemeManager.getCustomFont(), Typeface.NORMAL);
+        int normalBg = ThemeManager.getListButtonNormalBg();
+        if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
+            try {
+                normalBg = Color.parseColor(el.bgColor.trim());
+            } catch (Exception ignored) {
+            }
+        }
+        if (selected) {
+            btn.setBackground(ThemeManager.isClassicTheme() ? createFocusedButtonBackground()
+                    : createDynamicButtonBackground(ThemeManager.getListButtonFocusedBg(), el.radius));
+            main.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+            int rightColor = ThemeManager.getListButtonFocusedTextColor();
+            if (el.textRightFocusedColor != null && !el.textRightFocusedColor.isEmpty()) {
+                try {
+                    rightColor = Color.parseColor(el.textRightFocusedColor);
+                } catch (Exception ignored) {
+                }
+            }
+            right.setTextColor(rightColor);
+            main.setTranslationX(el.focusOffsetX * density);
+            main.setTranslationY(el.focusOffsetY * density);
+            if (el.focusScale > 0) {
+                main.setScaleX(el.focusScale);
+                main.setScaleY(el.focusScale);
+            }
+        } else {
+            btn.setBackground(createDynamicButtonBackground(normalBg, el.radius));
+            main.setTextColor(ThemeManager.getTextColorPrimary());
+            right.setVisibility(View.GONE);
+        }
+        String icon = selected && el.iconFocused != null && !el.iconFocused.isEmpty() ? el.iconFocused : el.iconNormal;
+        if (icon != null && !icon.isEmpty()) {
+            Bitmap bmp = ThemeManager.getCustomIcon(icon, this, 0);
+            if (bmp != null) {
+                android.graphics.drawable.BitmapDrawable dr = new android.graphics.drawable.BitmapDrawable(getResources(),
+                        Bitmap.createScaledBitmap(bmp, iconSize, iconSize, true));
+                dr.setBounds(0, 0, iconSize, iconSize);
+                main.setCompoundDrawables(dr, null, null, null);
+                main.setCompoundDrawablePadding(iconOnly ? 0 : (int) (10 * density));
+            }
+        }
+        if (iconOnly) {
+            btn.setClipChildren(false);
+            btn.setClipToPadding(false);
+            btn.addView(main, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        } else {
+            btn.addView(main, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            rlp.leftMargin = (int) (10 * density);
+            btn.addView(right, rlp);
+        }
+        return btn;
+    }
+
+    // Music (a list beside the cover, like the Music menu) or Settings (rows with values), drawn with
+    // the theme's own rows.
+    private View buildPreviewListPage(ThemeManager.ThemeData theme, boolean music) {
+        float d = getResources().getDisplayMetrics().density;
+        boolean classic = ThemeManager.isClassicTheme();
+        int top = (int) (ClassicMenuStyle.STATUS_HEIGHT_DP * d);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(buildPreviewBackground(theme), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        View overlay = new View(this);
+        overlay.setBackgroundColor(ThemeManager.getOverlayBackgroundColor());
+        root.addView(overlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        int listWidth = music ? (int) (ClassicMenuStyle.PANE_WIDTH_DP * d) : ViewGroup.LayoutParams.MATCH_PARENT;
+        if (music) {
+            ImageView cover = new ImageView(this);
+            cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            cover.setImageBitmap(previewCover());
+            FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT);
+            clp.leftMargin = listWidth;
+            root.addView(cover, clp);
+        }
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        if (classic) col.setPadding(0, top, 0, 0);
+        else col.setPadding((int) (10 * d), (int) (36 * d), (int) (10 * d), (int) (10 * d));
+        if (music) col.setBackgroundColor(ThemeManager.getOverlayBackgroundColor());
+        String[][] rows = music
+                ? new String[][] { { "Playlists", "" }, { "Artists", "" }, { "Albums", "" }, { "Songs", "" },
+                        { "Genres", "" }, { "Composers", "" }, { "Audiobooks", "" }, { "Podcasts", "" }, { "Search", "" } }
+                : new String[][] { { "Shuffle Mode", isShuffleMode ? t("ON") : t("OFF") },
+                        { "Repeat Mode", t(getRepeatModeText(repeatMode)) }, { "Theme", theme.name },
+                        { "Backlight Timer", t(BACKLIGHT_TIMER_LABELS[backlightTimerIndex]) },
+                        { "Large Text", ThemeManager.largeText ? t("ON") : t("OFF") },
+                        { "Sound Check", isSoundCheckEnabled ? t("ON") : t("OFF") }, { "Battery", batteryLevelPct + "%" },
+                        { "Language", "" }, { "About", "›" } };
+        for (int i = 0; i < rows.length; i++) {
+            LinearLayout row = createSettingRow(rows[i][0], music && i == 0 ? "›" : rows[i][1]);
+            row.setOnLongClickListener(null);
+            col.addView(row);
+            if (i == 0 && row.getOnFocusChangeListener() != null)
+                row.getOnFocusChangeListener().onFocusChange(row, true); // drawn selected, in this theme
+        }
+        root.addView(col, new FrameLayout.LayoutParams(listWidth, ViewGroup.LayoutParams.MATCH_PARENT));
+        View bar = buildPreviewStatusBar(t(music ? "Music" : "Settings"));
+        root.addView(bar, new FrameLayout.LayoutParams(music ? listWidth : ViewGroup.LayoutParams.MATCH_PARENT, top));
+        return root;
     }
 
     private void addBrokenThemeRows() {
@@ -14962,6 +15407,11 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // 🚀 [Themes] The full-screen theme preview takes every key while it's shown.
+        if (isThemePreviewShowing()) {
+            handleThemePreviewKey(event);
+            return true;
+        }
         // 🚀 [Extras] The clock / stopwatch / ringing-alarm screen takes every key while it's shown.
         if (extrasOverlay != null && extrasOverlay.getVisibility() == View.VISIBLE) {
             handleExtrasOverlayKey(event);
