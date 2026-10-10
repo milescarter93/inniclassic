@@ -52,7 +52,7 @@ public class CategoryListAdapter extends BaseAdapter {
         if (type.equals("ALBUM")) {
             albumSongCounts = new HashMap<>();
             albumFilesMap = new HashMap<>();
-            for (SongItem song : MainActivity.customLibrary) {
+            for (SongItem song : library()) {
                 Integer c = albumSongCounts.get(song.album);
                 albumSongCounts.put(song.album, c == null ? 1 : c + 1);
 
@@ -194,7 +194,7 @@ public class CategoryListAdapter extends BaseAdapter {
             tvTitle.setText(MainActivity.instance.t("All Songs"));
             int allCount = 0;
             boolean isTrackArtistMode = MainActivity.instance.categoryArtistFilterIsTrackArtist;
-            for (SongItem song : MainActivity.customLibrary) {
+            for (SongItem song : library()) {
                 String filter = MainActivity.instance.categoryArtistFilter;
                 if (isTrackArtistMode ? MainActivity.isCreditedArtist(song, filter) : filter.equals(song.albumArtist))
                     allCount++;
@@ -605,10 +605,20 @@ public class CategoryListAdapter extends BaseAdapter {
     // Lower-case keys of their own: in a count ("12 songs") the word isn't capitalised, unlike the "Songs"
     // menu entry, and a language can only give one translation per key.
     private String t1Song() {
-        return "1 " + MainActivity.instance.t("song");
+        return "1 " + MainActivity.instance.t(audiobooks() ? "chapter" : "song");
     }
 
     private String tSongs() {
-        return MainActivity.instance.t("songs");
+        return MainActivity.instance.t(audiobooks() ? "chapters" : "songs");
+    }
+
+    // 🚀 [Audiobooks] In the audiobook library (Authors / Books) the counts and covers come from the
+    // audiobooks, not the music: every book used to show "0 songs" and no cover.
+    private static boolean audiobooks() {
+        return MainActivity.instance != null && MainActivity.instance.isAudiobookLibraryMode;
+    }
+
+    private static java.util.List<SongItem> library() {
+        return audiobooks() ? MainActivity.audiobookLibrary : MainActivity.customLibrary;
     }
 }

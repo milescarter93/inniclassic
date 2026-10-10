@@ -43,7 +43,8 @@ public final class LyricsFetcher {
     private static okhttp3.OkHttpClient client;
     private static volatile boolean loggedValidator;
 
-    private static synchronized okhttp3.OkHttpClient client(Context context) throws Exception {
+    // (also used by AudiobookStore: same verified HTTPS, for archive.org)
+    public static synchronized okhttp3.OkHttpClient client(Context context) throws Exception {
         if (client != null) return client;
         final X509TrustManager system = defaultTrustManager(null);
         KeyStore extra = KeyStore.getInstance(KeyStore.getDefaultType());

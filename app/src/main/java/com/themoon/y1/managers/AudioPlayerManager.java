@@ -1125,6 +1125,7 @@ public class AudioPlayerManager {
                         AudiobookManager.getInstance(main).saveBookmark(filePath, getCurrentPosition(), main.currentIndex);
 
                         main.prefs.edit()
+                                .putString("book_last_" + new java.io.File(filePath).getParent(), filePath)
                                 .putInt("book_pos_" + filePath, getCurrentPosition())
                                 .putInt("book_dur_" + filePath, getDuration())
                                 .apply();

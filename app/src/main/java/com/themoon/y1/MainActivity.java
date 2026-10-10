@@ -600,9 +600,9 @@ public class MainActivity extends Activity {
     // 🚀 [Settings sections] iPod-style Settings: a short list of sections, each one its own page.
     // Extras (clock, alarm, stopwatch) is drawn the same way, as a page of its own.
     private static final int SS_TOP = -1, SS_PLAYBACK = 0, SS_DISPLAY = 1, SS_CONTROLS = 2, SS_CONNECTIONS = 3,
-            SS_SYSTEM = 4, SS_EXTRAS = 5;
+            SS_SYSTEM = 4, SS_EXTRAS = 5, SS_DISCOVER = 6;
     private static final String[] SETTINGS_SECTION_TITLES = { "Playback", "Display", "Menus & Controls",
-            "Connections", "System", "Extras" };
+            "Connections", "System", "Extras", "Get Audiobooks" };
     private int settingsSection = SS_TOP;
     private int settingsTopFocus = 0, extrasFocus = 0;
     private String settingsRowLabel; // the row a sub-page was opened from (its status bar title)
@@ -1933,6 +1933,8 @@ public class MainActivity extends Activity {
             isCoverMotionEnabled = prefs.getBoolean("cover_motion_enabled", true);
             nowPlayingInfoMode = prefs.getInt("now_playing_info", 3) & 3;
             ThemeManager.largeText = prefs.getBoolean("large_text", false); // 🚀 [Accessibility]
+            com.themoon.y1.managers.AudiobookStore.setListener(audiobookListener); // 🚀 [Audiobooks]
+            com.themoon.y1.managers.AudiobookStore.resumePending(this);
             ThemeManager.highContrast = prefs.getBoolean("high_contrast", false);
         } catch (Exception e) {
         }
@@ -5365,7 +5367,7 @@ public class MainActivity extends Activity {
         } else if (currentScreenState == STATE_WIFI_KEYBOARD) {
             // The wheel keyboard started as the Wi-Fi password screen but is shared by several features;
             // title it after what it's being used for.
-            if (currentKeyboardMode == 4) title = t("Search");
+            if (currentKeyboardMode == 4 || currentKeyboardMode == 8) title = t("Search");
             else if (currentKeyboardMode >= 5 && currentKeyboardMode <= 7) title = t("Playlists");
             else if (currentKeyboardMode == 1) title = t("Search Podcast");
             else if (currentKeyboardMode == 2 || currentKeyboardMode == 3) title = "Last.fm";
@@ -6453,6 +6455,8 @@ public class MainActivity extends Activity {
             tvKeyboardSsid.setText(t("Last.fm Password") + ": " + pendingLastFmUsername);
         } else if (currentKeyboardMode == 4) {
             tvKeyboardSsid.setText("🔍 " + t("Search"));
+        } else if (currentKeyboardMode == 8) {
+            tvKeyboardSsid.setText("🔍 LibriVox (" + t(AudiobookLangName(discoverLang)) + ")");
         } else if (currentKeyboardMode == 5) {
             tvKeyboardSsid.setText(t("New Playlist"));
         } else if (currentKeyboardMode == 6) {
@@ -6490,7 +6494,7 @@ public class MainActivity extends Activity {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter Last.fm username...") : typedPassword);
             } else if (currentKeyboardMode == 3) {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter Last.fm password...") : typedPassword);
-            } else if (currentKeyboardMode == 4) {
+            } else if (currentKeyboardMode == 4 || currentKeyboardMode == 8) {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter search term...") : typedPassword);
             } else if (currentKeyboardMode >= 5 && currentKeyboardMode <= 7) {
                 tvKeyboardInput.setText(typedPassword.length() == 0 ? t("Enter a name...") : typedPassword);
@@ -6523,6 +6527,16 @@ public class MainActivity extends Activity {
                 }
                 changeScreen(STATE_BROWSER); // 💡 검색 버튼을 누르면 키보드를 닫고 브라우저로 복귀!
                 searchPodcastFromApple(typedPassword.trim()); // 🍏 애플 검색 엔진 발사!
+            } else if (currentKeyboardMode == 8) { // 🚀 [Audiobooks] search LibriVox
+                if (typedPassword.trim().isEmpty()) {
+                    Toast.makeText(this, t("Please enter a keyword."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                currentKeyboardMode = 0;
+                isNavigatingToSubMenu = true;
+                changeScreen(STATE_SETTINGS);
+                isNavigatingToSubMenu = false;
+                showBookResults(discoverLang, typedPassword.trim(), true);
             } else if (currentKeyboardMode == 4) {
                 if (typedPassword.trim().isEmpty()) {
                     Toast.makeText(this, t("Please enter a keyword."), Toast.LENGTH_SHORT).show();
@@ -7357,6 +7371,7 @@ public class MainActivity extends Activity {
         settingsSectionRows = new java.util.TreeMap<>();
         if (settingsSection == SS_TOP) addSettingsSectionRows();
         else if (settingsSection == SS_EXTRAS) addExtrasRows();
+        else if (settingsSection == SS_DISCOVER) addDiscoverRows();
 
         // createCategoryHeader("━ QUICK SETTINGS ━");
 
@@ -9737,6 +9752,14 @@ public class MainActivity extends Activity {
                     buildVirtualSongs();
                 });
                 containerBrowserItems.addView(btnAll);
+
+                // 🚀 [Audiobooks] Free LibriVox audiobooks, found and downloaded on the Y1
+                View btnGetBooks = createListButtonWithIcon("\uE2C4", t("Get Audiobooks"));
+                btnGetBooks.setOnClickListener(v -> {
+                    clickFeedback();
+                    openDiscover();
+                });
+                containerBrowserItems.addView(btnGetBooks);
 
                 // 🎵 뮤직 모드로 돌아가기 버튼
                 View btnMusic = createListButtonWithIcon("\uE03D", t("Switch to Music"));
@@ -14552,6 +14575,12 @@ public class MainActivity extends Activity {
                     clickFeedback();
                     return true;
                 }
+                if (currentKeyboardMode == 8) { // 🚀 [Audiobooks] back to Get Audiobooks
+                    currentKeyboardMode = 0;
+                    changeScreen(STATE_SETTINGS);
+                    clickFeedback();
+                    return true;
+                }
                 if (currentKeyboardMode == 4) {
                     currentKeyboardMode = 0; // 모드 초기화 (검색 취소)
                     currentBrowserMode = BROWSER_ROOT;
@@ -14885,7 +14914,16 @@ public class MainActivity extends Activity {
                     isRadioUIShowing = false;
 
                     // 🚀 [라우팅 정화 완벽 복구] 깊이(Depth)를 파악하여 알맞은 상위 메뉴로 완벽하게 돌아갑니다!
-                    if (currentSettingsDepth == 0 && settingsSection == SS_EXTRAS) {
+                    if (currentSettingsDepth == 0 && settingsSection == SS_DISCOVER) {
+                        // 🚀 [Audiobooks] back to Music > Audiobooks
+                        discoverFocus = lastSettingsFocusIndex;
+                        settingsSection = SS_TOP;
+                        lastSettingsFocusIndex = settingsTopFocus;
+                        isAudiobookLibraryMode = true;
+                        currentBrowserMode = BROWSER_ROOT;
+                        lastBrowserFocusText = t("Get Audiobooks");
+                        changeScreen(STATE_BROWSER); // (it rebuilds the menu; a second build would undo the focus)
+                    } else if (currentSettingsDepth == 0 && settingsSection == SS_EXTRAS) {
                         // 🚀 [Extras] back to the main menu
                         extrasFocus = lastSettingsFocusIndex;
                         settingsSection = SS_TOP;
@@ -19230,6 +19268,433 @@ public class MainActivity extends Activity {
             buildGamesUI();
         });
         containerSettingsItems.addView(gamesRow);
+    }
+
+    // =======================================================
+    // 🚀 [Audiobooks] Music > Audiobooks > Get Audiobooks: free LibriVox audiobooks in Spanish and English
+    // (managers/AudiobookStore). Pages drawn like Settings: the lists (most popular, search), a book's
+    // page (cover, length, size, Download / Listen / Delete) and the downloads.
+    // =======================================================
+    private int discoverFocus;
+    private String discoverLang = com.themoon.y1.managers.AudiobookStore.LANG_ES;
+    private String resultsLang, resultsQuery;
+    private final List<com.themoon.y1.managers.AudiobookStore.Book> resultsBooks = new ArrayList<>();
+    private int resultsPage, resultsFocus;
+    private boolean resultsMore;
+    private String bookPageId; // the book page on screen (progress updates), or null
+    private TextView bookPageStatus;
+    private boolean downloadsPageShowing;
+
+    private static String AudiobookLangName(String lang) {
+        return com.themoon.y1.managers.AudiobookStore.LANG_ES.equals(lang) ? "Spanish" : "English";
+    }
+
+    private final com.themoon.y1.managers.AudiobookStore.Listener audiobookListener =
+            new com.themoon.y1.managers.AudiobookStore.Listener() {
+                @Override
+                public void onProgress(com.themoon.y1.managers.AudiobookStore.Job job) {
+                    if (currentScreenState != STATE_SETTINGS || settingsSection != SS_DISCOVER) return;
+                    if (bookPageStatus != null && job.details.book.id.equals(bookPageId))
+                        bookPageStatus.setText(downloadStatus(job));
+                    else if (downloadsPageShowing) refreshDownloadsRows();
+                }
+
+                @Override
+                public void onFinished(com.themoon.y1.managers.AudiobookStore.Job job, boolean ok) {
+                    if (ok) {
+                        Toast.makeText(MainActivity.this, String.format(t("Downloaded: %s"), job.details.book.title),
+                                Toast.LENGTH_LONG).show();
+                        requestLibraryRescanSoon(); // into Authors / Books
+                    } else if (!job.cancelled) {
+                        Toast.makeText(MainActivity.this, String.format(t("Download stopped: %s"), job.details.book.title)
+                                + (job.error != null ? " (" + job.error + ")" : ""), Toast.LENGTH_LONG).show();
+                    }
+                    if (currentScreenState == STATE_SETTINGS && settingsSection == SS_DISCOVER) {
+                        if (job.details.book.id.equals(bookPageId)) buildBookPageUI(job.details.book, settingsDepth2Back);
+                        else if (downloadsPageShowing) buildDownloadsUI();
+                    }
+                }
+            };
+
+    private void openDiscover() {
+        isNavigatingToSubMenu = true;
+        changeScreen(STATE_SETTINGS);
+        settingsSection = SS_DISCOVER;
+        lastSettingsFocusIndex = discoverFocus;
+        buildSettingsUI();
+        isNavigatingToSubMenu = false;
+    }
+
+    private void leaveDiscoverPages() {
+        bookPageId = null;
+        bookPageStatus = null;
+        downloadsPageShowing = false;
+    }
+
+    private TextView discoverNote(String text) {
+        float d = getResources().getDisplayMetrics().density;
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(ThemeManager.getTextColorSecondary());
+        tv.setTypeface(ThemeManager.getCustomFont());
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 15 * ThemeManager.textScale() * d);
+        tv.setPadding((int) (8 * d), (int) (8 * d), (int) (8 * d), (int) (6 * d));
+        return tv;
+    }
+
+    private void addDiscoverRows() {
+        leaveDiscoverPages();
+        String[][] rows = { { "Popular in Spanish", com.themoon.y1.managers.AudiobookStore.LANG_ES, "" },
+                { "Popular in English", com.themoon.y1.managers.AudiobookStore.LANG_EN, "" },
+                { "Search in Spanish", com.themoon.y1.managers.AudiobookStore.LANG_ES, "search" },
+                { "Search in English", com.themoon.y1.managers.AudiobookStore.LANG_EN, "search" } };
+        for (final String[] r : rows) {
+            final LinearLayout row = createSettingRow(r[0], "›");
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                discoverLang = r[1];
+                if (r[2].isEmpty()) {
+                    showBookResults(r[1], null, false);
+                } else {
+                    currentKeyboardMode = 8;
+                    changeScreen(STATE_WIFI_KEYBOARD);
+                }
+            });
+            containerSettingsItems.addView(row);
+        }
+        int active = com.themoon.y1.managers.AudiobookStore.jobs().size();
+        final LinearLayout downloads = createSettingRow("Downloads",
+                (active > 0 ? String.valueOf(active) + "  " : "") + "›");
+        downloads.setOnClickListener(v -> {
+            clickFeedback();
+            buildDownloadsUI();
+        });
+        containerSettingsItems.addView(downloads);
+        containerSettingsItems.addView(discoverNote(t("Free public-domain audiobooks, read by LibriVox volunteers.")));
+    }
+
+    // A list of books: the most popular in a language, or a search. fresh = fetch again.
+    private void showBookResults(final String lang, final String query, boolean fresh) {
+        boolean same = lang.equals(resultsLang) && (query == null ? resultsQuery == null : query.equals(resultsQuery));
+        if (fresh || !same || resultsBooks.isEmpty()) {
+            resultsLang = lang;
+            resultsQuery = query;
+            resultsBooks.clear();
+            resultsPage = 0;
+            resultsFocus = 0;
+            resultsMore = true;
+            loadMoreBooks();
+        } else {
+            renderBookResults();
+        }
+    }
+
+    private void loadMoreBooks() {
+        setSettingsDepth(1);
+        settingsRowLabel = resultsQuery != null ? "“" + resultsQuery + "”"
+                : t(com.themoon.y1.managers.AudiobookStore.LANG_ES.equals(resultsLang) ? "Popular in Spanish" : "Popular in English");
+        updateStatusBarTitle();
+        if (resultsBooks.isEmpty()) {
+            containerSettingsItems.removeAllViews();
+            LinearLayout loading = createSettingRow("Loading...", "");
+            containerSettingsItems.addView(loading);
+            loading.requestFocus();
+        }
+        final String lang = resultsLang, query = resultsQuery;
+        final int page = resultsPage + 1;
+        new Thread(() -> {
+            List<com.themoon.y1.managers.AudiobookStore.Book> found = null;
+            Exception error = null;
+            try {
+                found = com.themoon.y1.managers.AudiobookStore.search(this, lang, query, page);
+            } catch (Exception e) {
+                error = e;
+            }
+            final List<com.themoon.y1.managers.AudiobookStore.Book> result = found;
+            final Exception err = error;
+            runOnUiThread(() -> {
+                boolean sameList = lang.equals(resultsLang) && (query == null ? resultsQuery == null : query.equals(resultsQuery));
+                if (!sameList) return; // another list was opened meanwhile
+                if (result == null) {
+                    android.util.Log.w("Y1Books", "Search failed", err);
+                    Toast.makeText(this, t("Couldn't reach LibriVox. Is Wi-Fi on?") + (err != null ? " (" + err.getClass().getSimpleName() + ")" : ""),
+                            Toast.LENGTH_LONG).show();
+                    resultsMore = false;
+                } else {
+                    resultsFocus = resultsBooks.size();
+                    resultsBooks.addAll(result);
+                    resultsPage = page;
+                    resultsMore = result.size() >= com.themoon.y1.managers.AudiobookStore.pageSize();
+                }
+                // drawn only if the list is still on screen
+                if (currentScreenState == STATE_SETTINGS && settingsSection == SS_DISCOVER && currentSettingsDepth == 1
+                        && !downloadsPageShowing)
+                    renderBookResults();
+            });
+        }, "Y1BookSearch").start();
+    }
+
+    private void renderBookResults() {
+        setSettingsDepth(1);
+        leaveDiscoverPages();
+        settingsRowLabel = resultsQuery != null ? "“" + resultsQuery + "”"
+                : t(com.themoon.y1.managers.AudiobookStore.LANG_ES.equals(resultsLang) ? "Popular in Spanish" : "Popular in English");
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        float d = getResources().getDisplayMetrics().density;
+        for (int i = 0; i < resultsBooks.size(); i++) {
+            final com.themoon.y1.managers.AudiobookStore.Book b = resultsBooks.get(i);
+            final int index = i;
+            LinearLayout row = createSettingRow("", "");
+            ((TextView) row.getChildAt(0)).setText(
+                    (com.themoon.y1.managers.AudiobookStore.isDownloaded(b) ? "✓ " : "") + b.title);
+            TextView author = (TextView) row.getChildAt(1);
+            author.setText(b.author);
+            author.setMaxWidth((int) (130 * d));
+            author.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                resultsFocus = index;
+                buildBookPageUI(b, this::renderBookResults);
+            });
+            containerSettingsItems.addView(row);
+        }
+        if (resultsMore) {
+            LinearLayout more = createSettingRow("More results", "›");
+            more.setOnClickListener(v -> {
+                clickFeedback();
+                ((TextView) more.getChildAt(0)).setText(t("Loading..."));
+                loadMoreBooks();
+            });
+            containerSettingsItems.addView(more);
+        }
+        if (resultsBooks.isEmpty())
+            containerSettingsItems.addView(createSettingRow(resultsQuery != null ? "Nothing found" : "Loading...", ""), 0);
+        View focus = containerSettingsItems.getChildAt(Math.max(0, Math.min(resultsFocus, containerSettingsItems.getChildCount() - 1)));
+        if (focus != null) focus.requestFocus();
+    }
+
+    private static String formatDuration(int seconds) {
+        int h = seconds / 3600, m = (seconds % 3600) / 60;
+        return h > 0 ? String.format(Locale.US, "%d h %02d min", h, m) : String.format(Locale.US, "%d min", m);
+    }
+
+    private static String formatMb(long bytes) {
+        return String.format(Locale.US, "%d MB", Math.max(1, Math.round(bytes / 1048576.0)));
+    }
+
+    private String downloadStatus(com.themoon.y1.managers.AudiobookStore.Job job) {
+        if (!job.running) return t("Waiting to download...");
+        return String.format(Locale.US, t("Downloading chapter %1$d of %2$d · %3$d%%"),
+                Math.min(job.doneFiles + 1, job.details.chapters.size()), job.details.chapters.size(), job.percent());
+    }
+
+    // A book: cover, author, chapters, length, size, and what can be done with it. back = where Back goes.
+    private void buildBookPageUI(final com.themoon.y1.managers.AudiobookStore.Book book, final Runnable back) {
+        setSettingsDepth(2);
+        settingsDepth2Back = back;
+        downloadsPageShowing = false;
+        bookPageId = book.id;
+        bookPageStatus = null;
+        settingsRowLabel = book.title;
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        LinearLayout loading = createSettingRow("Loading...", "");
+        containerSettingsItems.addView(loading);
+        loading.requestFocus();
+        new Thread(() -> {
+            com.themoon.y1.managers.AudiobookStore.Details found = null;
+            com.themoon.y1.managers.AudiobookStore.Job job = com.themoon.y1.managers.AudiobookStore.jobFor(book.id);
+            if (job != null) found = job.details;
+            Exception error = null;
+            if (found == null) {
+                try {
+                    found = com.themoon.y1.managers.AudiobookStore.details(this, book.id);
+                } catch (Exception e) {
+                    error = e;
+                }
+            }
+            Bitmap cover = null;
+            File localCover = new File(com.themoon.y1.managers.AudiobookStore.bookDir(book), "cover.jpg");
+            try {
+                if (localCover.exists()) {
+                    cover = BitmapFactory.decodeFile(localCover.getAbsolutePath());
+                } else {
+                    okhttp3.Response r = com.themoon.y1.managers.LyricsFetcher.client(this).newCall(new okhttp3.Request.Builder()
+                            .url("https://archive.org/services/img/" + java.net.URLEncoder.encode(book.id, "UTF-8")).build()).execute();
+                    try {
+                        if (r.isSuccessful()) cover = BitmapFactory.decodeStream(r.body().byteStream());
+                    } finally {
+                        r.close();
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            final com.themoon.y1.managers.AudiobookStore.Details details = found;
+            final Exception err = error;
+            final Bitmap art = cover;
+            runOnUiThread(() -> {
+                if (!book.id.equals(bookPageId) || currentScreenState != STATE_SETTINGS) return;
+                if (details == null) {
+                    android.util.Log.w("Y1Books", "Details failed", err);
+                    ((TextView) loading.getChildAt(0)).setText(t("Couldn't reach LibriVox. Is Wi-Fi on?"));
+                    return;
+                }
+                renderBookPage(details, art);
+            });
+        }, "Y1BookPage").start();
+    }
+
+    private void renderBookPage(final com.themoon.y1.managers.AudiobookStore.Details d, Bitmap art) {
+        final com.themoon.y1.managers.AudiobookStore.Book book = d.book;
+        float dp = getResources().getDisplayMetrics().density;
+        containerSettingsItems.removeAllViews();
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setPadding((int) (8 * dp), (int) (8 * dp), (int) (8 * dp), (int) (8 * dp));
+        ImageView cover = new ImageView(this);
+        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        if (art != null) cover.setImageBitmap(art);
+        else cover.setImageResource(R.drawable.default_album);
+        head.addView(cover, new LinearLayout.LayoutParams((int) (110 * dp), (int) (110 * dp)));
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding((int) (12 * dp), 0, 0, 0);
+        TextView title = new TextView(this);
+        title.setText(d.book.title);
+        title.setTextColor(ThemeManager.getTextColorPrimary());
+        title.setTypeface(ThemeManager.getCustomFontBold());
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 19 * ThemeManager.textScale() * dp);
+        title.setMaxLines(2);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        info.addView(title);
+        String[] lines = { d.book.author,
+                String.format(Locale.US, t("%d chapters"), d.chapters.size()) + "  ·  " + formatDuration(d.totalSeconds),
+                formatMb(d.totalBytes) };
+        for (String line : lines) {
+            TextView tv = new TextView(this);
+            tv.setText(line);
+            tv.setTextColor(ThemeManager.getTextColorSecondary());
+            tv.setTypeface(ThemeManager.getCustomFont());
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 16 * ThemeManager.textScale() * dp);
+            tv.setSingleLine(true);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            info.addView(tv);
+        }
+        head.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        containerSettingsItems.addView(head);
+
+        com.themoon.y1.managers.AudiobookStore.Job job = com.themoon.y1.managers.AudiobookStore.jobFor(book.id);
+        View first;
+        if (job != null) {
+            LinearLayout status = createSettingRow("", "");
+            bookPageStatus = (TextView) status.getChildAt(0);
+            bookPageStatus.setText(downloadStatus(job));
+            containerSettingsItems.addView(status);
+            LinearLayout cancel = createSettingRow("Cancel Download", "›");
+            cancel.setOnClickListener(v -> {
+                clickFeedback();
+                com.themoon.y1.managers.AudiobookStore.cancel(this, book.id);
+                Toast.makeText(this, t("Download cancelled."), Toast.LENGTH_SHORT).show();
+                renderBookPage(d, art);
+            });
+            containerSettingsItems.addView(cancel);
+            first = status;
+        } else if (com.themoon.y1.managers.AudiobookStore.isDownloaded(book)) {
+            LinearLayout listen = createSettingRow("Listen", "›");
+            listen.setOnClickListener(v -> {
+                clickFeedback();
+                listenToBook(com.themoon.y1.managers.AudiobookStore.bookDir(book));
+            });
+            containerSettingsItems.addView(listen);
+            LinearLayout delete = createSettingRow("Delete from the Y1", "›");
+            delete.setOnClickListener(v -> {
+                clickFeedback();
+                confirmPlaylistAction(String.format(t("Delete “%s” from the Y1?"), book.title), t("Delete"), () -> {
+                    com.themoon.y1.managers.AudiobookStore.deleteBook(book);
+                    requestLibraryRescanSoon();
+                    renderBookPage(d, art);
+                });
+            });
+            containerSettingsItems.addView(delete);
+            first = listen;
+        } else {
+            LinearLayout download = createSettingRow("Download", formatMb(d.totalBytes) + "  ›");
+            download.setOnClickListener(v -> {
+                clickFeedback();
+                if (d.chapters.isEmpty()) {
+                    Toast.makeText(this, t("This book has no audio files to download."), Toast.LENGTH_LONG).show();
+                    return;
+                }
+                long free = com.themoon.y1.managers.AudiobookStore.freeBytes();
+                if (free < d.totalBytes + 20L * 1048576) {
+                    Toast.makeText(this, String.format(t("Not enough space: it needs %1$s and %2$s are free."),
+                            formatMb(d.totalBytes), formatMb(free)), Toast.LENGTH_LONG).show();
+                    return;
+                }
+                com.themoon.y1.managers.AudiobookStore.enqueue(this, d);
+                Toast.makeText(this, t("Downloading in the background. You can keep using the Y1."), Toast.LENGTH_LONG).show();
+                renderBookPage(d, art);
+            });
+            containerSettingsItems.addView(download);
+            first = download;
+        }
+        if (!d.description.isEmpty()) {
+            String text = d.description.length() > 420 ? d.description.substring(0, 420) + "…" : d.description;
+            containerSettingsItems.addView(discoverNote(text));
+        }
+        first.requestFocus();
+        if (containerSettingsItems.getParent() instanceof ScrollView) ((ScrollView) containerSettingsItems.getParent()).scrollTo(0, 0);
+    }
+
+    // Plays a downloaded book from the chapter last listened to (its position is restored by the player).
+    private void listenToBook(File dir) {
+        File[] files = dir.listFiles();
+        List<File> chapters = new ArrayList<>();
+        if (files != null)
+            for (File f : files) {
+                String n = f.getName().toLowerCase(Locale.ROOT);
+                if (f.isFile() && (n.endsWith(".mp3") || n.endsWith(".m4a") || n.endsWith(".m4b") || n.endsWith(".ogg")))
+                    chapters.add(f);
+            }
+        if (chapters.isEmpty()) return;
+        java.util.Collections.sort(chapters, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+        File start = chapters.get(0);
+        String last = prefs.getString("book_last_" + dir.getAbsolutePath(), "");
+        for (File f : chapters) if (f.getAbsolutePath().equals(last)) start = f;
+        com.themoon.y1.managers.AudiobookManager.getInstance(this).setupBookPlaylist(this, start, dir);
+        changeScreen(STATE_PLAYER);
+    }
+
+    private void buildDownloadsUI() {
+        setSettingsDepth(1);
+        leaveDiscoverPages();
+        downloadsPageShowing = true;
+        settingsRowLabel = t("Downloads");
+        updateStatusBarTitle();
+        refreshDownloadsRows();
+        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    private void refreshDownloadsRows() {
+        int focus = containerSettingsItems.indexOfChild(containerSettingsItems.getFocusedChild());
+        containerSettingsItems.removeAllViews();
+        List<com.themoon.y1.managers.AudiobookStore.Job> jobs = com.themoon.y1.managers.AudiobookStore.jobs();
+        for (final com.themoon.y1.managers.AudiobookStore.Job job : jobs) {
+            LinearLayout row = createSettingRow("", job.running ? job.percent() + "%" : t("Waiting"));
+            ((TextView) row.getChildAt(0)).setText(job.details.book.title);
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                buildBookPageUI(job.details.book, this::buildDownloadsUI);
+            });
+            containerSettingsItems.addView(row);
+        }
+        if (jobs.isEmpty()) {
+            LinearLayout none = createSettingRow("No downloads in progress", "");
+            containerSettingsItems.addView(none);
+        }
+        View f = containerSettingsItems.getChildAt(Math.max(0, Math.min(focus, containerSettingsItems.getChildCount() - 1)));
+        if (f != null) f.requestFocus();
     }
 
     // =======================================================
