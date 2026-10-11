@@ -3926,6 +3926,33 @@ public class MainActivity extends Activity {
     // 💡 [개조 완료] 다운로드 진행률(%)과 용량(MB)을 실시간 팝업으로 보여주는 엔진!
     // 위쪽에 있는 이 주석 바로 위에 있는 refreshWidgets() 함수를 통째로 덮어쓰세요!
 
+    // The clock widget's text: the time, and under it a smaller date in the app's language ("sáb, 11 oct";
+    // it used to be the system's English).
+    private CharSequence clockWidgetText() {
+        Date now = new Date();
+        String timeStr = new SimpleDateFormat(is24HourFormat ? "HH:mm" : "hh:mm", Locale.US).format(now);
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        String[] days = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+        String[] months = { "January", "February", "March", "April", "May", "June", "July", "August", "September",
+                "October", "November", "December" };
+        String day = t(days[c.get(java.util.Calendar.DAY_OF_WEEK) - 1]);
+        String month = t(months[c.get(java.util.Calendar.MONTH)]);
+        day = day.length() > 3 ? day.substring(0, 3) : day;
+        month = month.length() > 3 ? month.substring(0, 3) : month;
+        if (!t("January").equals("January")) { // translated names are lower case there ("sáb, 11 oct")
+            day = day.toLowerCase(Locale.ROOT);
+            month = month.toLowerCase(Locale.ROOT);
+        }
+        String dateStr = day + ", " + c.get(java.util.Calendar.DAY_OF_MONTH) + " " + month;
+        String fullText = timeStr + "\n" + dateStr;
+        android.text.SpannableString spannable = new android.text.SpannableString(fullText);
+        spannable.setSpan(new android.text.style.RelativeSizeSpan(0.47f), timeStr.length() + 1,
+                fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        spannable.setSpan(new android.text.style.StyleSpan(Typeface.NORMAL),
+                timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return spannable;
+    }
+
     private void refreshWidgets() {
         // 1. 디지털 시계 위젯 업데이트
         if (tvWidgetClock != null) {
@@ -3941,21 +3968,7 @@ public class MainActivity extends Activity {
                 tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (currentClockSize * 2.1f) * d);
                 tvWidgetClock.setLineSpacing(0, 1.1f);
 
-                Date now = new Date();
-                String widgetTimeFormat = is24HourFormat ? "HH:mm" : "hh:mm";
-                SimpleDateFormat sdfTime = new SimpleDateFormat(widgetTimeFormat,
-                        Locale.US);
-                SimpleDateFormat sdfDate = new SimpleDateFormat("EEE, MMM dd", Locale.US);
-                String timeStr = sdfTime.format(now);
-                String dateStr = sdfDate.format(now);
-                String fullText = timeStr + "\n" + dateStr;
-
-                android.text.SpannableString spannable = new android.text.SpannableString(fullText);
-                spannable.setSpan(new android.text.style.RelativeSizeSpan(0.47f), timeStr.length() + 1,
-                        fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                spannable.setSpan(new android.text.style.StyleSpan(Typeface.NORMAL),
-                        timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                tvWidgetClock.setText(spannable);
+                tvWidgetClock.setText(clockWidgetText());
             }
         }
 
@@ -4726,9 +4739,10 @@ public class MainActivity extends Activity {
                 clock.setLayoutParams(createDynamicLayoutParams(el, density));
                 clock.setTextColor(ThemeManager.getTextColorPrimary());
                 clock.setTypeface(ThemeManager.getCustomFontBold());
-                clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (el.textSize > 0 ? el.textSize : 48f) * density);
-                java.util.Calendar now = java.util.Calendar.getInstance();
-                clock.setText(fmtClock(now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE)));
+                // (as refreshWidgets() draws it on the real main menu)
+                clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (el.textSize > 0 ? el.textSize : 48f) * 2.1f * density);
+                clock.setLineSpacing(0, 1.1f);
+                clock.setText(clockWidgetText());
                 if (widgetBg != null) clock.setBackground(widgetBg);
                 clock.setPadding(pad, pad, pad, pad);
                 canvas.addView(clock);
@@ -13844,10 +13858,12 @@ public class MainActivity extends Activity {
         float d = getResources().getDisplayMetrics().density;
         boolean classic = compact && ThemeManager.isClassicTheme();
         if (classic) layoutSettingsMode.setPadding(0, (int) (ClassicMenuStyle.STATUS_HEIGHT_DP * d), 0, 0);
+        // other themes keep a small margin around their rounded rows; the title is in the status bar too
+        else if (compact) layoutSettingsMode.setPadding((int) (6 * d), (int) (30 * d), (int) (6 * d), (int) (6 * d));
         else layoutSettingsMode.setPadding((int) (10 * d), (int) (36 * d), (int) (10 * d), (int) (10 * d));
         View title = ((ViewGroup) layoutSettingsMode).getChildAt(0);
         if (title instanceof TextView) {
-            title.setVisibility(classic || isRadioUIShowing ? View.GONE : View.VISIBLE);
+            title.setVisibility(compact || isRadioUIShowing ? View.GONE : View.VISIBLE);
             ((TextView) title).setText(settingsScreenTitle());
         }
     }
