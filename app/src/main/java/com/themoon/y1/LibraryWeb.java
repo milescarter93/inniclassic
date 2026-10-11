@@ -34,7 +34,12 @@ final class LibraryWeb {
 
     // assets/web/library.html with every {{English text}} replaced by its translation.
     static String page(Context context) throws java.io.IOException {
-        InputStream in = context.getAssets().open("web/library.html");
+        return page(context, "web/library.html");
+    }
+
+    // (also the Podcasts & Audiobooks page, MediaWeb)
+    static String page(Context context, String asset) throws java.io.IOException {
+        InputStream in = context.getAssets().open(asset);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;

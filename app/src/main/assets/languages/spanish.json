@@ -792,5 +792,16 @@
   "3 Newest": "Los 3 más recientes",
   "Never": "Nunca",
   "After 1 Day": "Al día siguiente",
-  "After 7 Days": "A los 7 días"
+  "After 7 Days": "A los 7 días",
+  "Download to the Y1": "Descargar en el Y1",
+  "Downloading": "Descargando",
+  "Free space on the card: %s": "Espacio libre en la tarjeta: %s",
+  "Not enough space on the Y1's card.": "No hay espacio suficiente en la tarjeta del Y1.",
+  "On the Y1": "En el Y1",
+  "Played": "Escuchado",
+  "Podcasts & Audiobooks": "Podcasts y audiolibros",
+  "Queued: the Y1 is downloading it.": "En cola: el Y1 lo está descargando.",
+  "Search podcasts...": "Buscar podcasts...",
+  "Subscribed": "Suscrito",
+  "Title or author...": "Título o autor..."
 }

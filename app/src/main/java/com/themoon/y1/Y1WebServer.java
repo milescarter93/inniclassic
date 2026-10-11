@@ -150,6 +150,11 @@ public class Y1WebServer extends Thread {
             return "";
         }
 
+        // A chart / search country the page may ask for (anything else: Spain).
+        private String mediaCountry(String c) {
+            return c.matches("[a-z]{2}") ? c : "es";
+        }
+
         // One query-string parameter of the request path, decoded ("" if missing).
         private String query(String path, String key) throws java.io.IOException {
             int q = path.indexOf('?');
@@ -236,7 +241,8 @@ public class Y1WebServer extends Thread {
 
                             "<h2 style='color:#E0E0E0; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager " +
                             "<a href='/lastfm' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>🎧 Last.fm Settings</a> " +
-                            "<a href='/library' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>📚 " + tr("Library & Playlists") + "</a></h2>" +
+                            "<a href='/library' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>📚 " + tr("Library & Playlists") + "</a> " +
+                            "<a href='/media' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>🎙️ " + tr("Podcasts & Audiobooks") + "</a></h2>" +
 
                             // 업로드/폴더생성 박스
                             "<div class='box' id='uploadBox'>" +
@@ -416,6 +422,72 @@ public class Y1WebServer extends Thread {
                     byte[] page = LibraryWeb.page(context).getBytes("UTF-8");
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: " + page.length + "\r\n\r\n").getBytes("UTF-8"));
                     os.write(page);
+                }
+                // 🎙️ [Podcasts & audiobooks web] explore, subscribe and queue downloads from the computer (see MediaWeb)
+                else if (method.equals("GET") && (path.equals("/media") || path.startsWith("/media?"))) {
+                    byte[] page = LibraryWeb.page(context, "web/media.html").getBytes("UTF-8");
+                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: " + page.length + "\r\n\r\n").getBytes("UTF-8"));
+                    os.write(page);
+                }
+                else if (method.equals("GET") && path.startsWith("/api/media/chart?")) {
+                    int genre = 0;
+                    try {
+                        genre = Integer.parseInt(query(path, "genre"));
+                    } catch (NumberFormatException ignored) {
+                    }
+                    writeJson(os, MediaWeb.podChart(context, mediaCountry(query(path, "country")), genre));
+                }
+                else if (method.equals("GET") && path.startsWith("/api/media/search?")) {
+                    writeJson(os, MediaWeb.podSearch(context, query(path, "q"), mediaCountry(query(path, "country"))));
+                }
+                else if (method.equals("GET") && path.equals("/api/media/subs")) {
+                    writeJson(os, MediaWeb.podSubscriptions(context));
+                }
+                else if (method.equals("GET") && path.startsWith("/api/media/feed?")) {
+                    writeJson(os, MediaWeb.podFeed(context, query(path, "feed"), query(path, "name"), query(path, "art"), query(path, "author")));
+                }
+                else if (method.equals("POST") && (path.equals("/api/media/subscribe") || path.equals("/api/media/unsubscribe"))) {
+                    String body = readBody(is, contentLength);
+                    String feed = formParam(body, "feed");
+                    if (!feed.startsWith("http")) throw new java.io.IOException("Bad feed");
+                    writeJson(os, path.endsWith("/subscribe")
+                            ? MediaWeb.podSubscribe(context, feed, formParam(body, "name"), formParam(body, "art"), formParam(body, "author"))
+                            : MediaWeb.podUnsubscribe(context, feed));
+                }
+                else if (method.equals("POST") && path.equals("/api/media/episode")) {
+                    String body = readBody(is, contentLength);
+                    String url = formParam(body, "url");
+                    if (!url.startsWith("http")) throw new java.io.IOException("Bad url");
+                    long size = 0;
+                    try {
+                        size = Long.parseLong(formParam(body, "size"));
+                    } catch (NumberFormatException ignored) {
+                    }
+                    writeJson(os, MediaWeb.podDownload(context, formParam(body, "show"), formParam(body, "title"), url, size,
+                            formParam(body, "art")));
+                }
+                else if (method.equals("GET") && path.startsWith("/api/media/books?")) {
+                    int page = 1;
+                    try {
+                        page = Math.max(1, Integer.parseInt(query(path, "page")));
+                    } catch (NumberFormatException ignored) {
+                    }
+                    String lang = "en".equals(query(path, "lang")) ? com.themoon.y1.managers.AudiobookStore.LANG_EN
+                            : com.themoon.y1.managers.AudiobookStore.LANG_ES;
+                    writeJson(os, MediaWeb.bookSearch(context, lang, query(path, "q"), page));
+                }
+                else if (method.equals("GET") && path.startsWith("/api/media/book?")) {
+                    writeJson(os, MediaWeb.bookDetails(context, query(path, "id")));
+                }
+                else if (method.equals("POST") && path.equals("/api/media/book/download")) {
+                    writeJson(os, MediaWeb.bookDownload(context, formParam(readBody(is, contentLength), "id")));
+                }
+                else if (method.equals("GET") && path.equals("/api/media/downloads")) {
+                    writeJson(os, MediaWeb.downloads());
+                }
+                else if (method.equals("POST") && path.equals("/api/media/cancel")) {
+                    String body = readBody(is, contentLength);
+                    writeJson(os, MediaWeb.cancel(context, formParam(body, "type"), formParam(body, "key")));
                 }
                 else if (method.equals("GET") && path.equals("/api/library")) {
                     writeJson(os, LibraryWeb.songsJson(rootFolder));

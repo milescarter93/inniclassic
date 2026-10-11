@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{Podcasts & Audiobooks}}</title>
+<style>
+  body{font-family:'Roboto','Segoe UI',sans-serif;background:#1E1E24;color:#E0E0E0;margin:0 auto;max-width:1100px;padding:20px 16px 80px}
+  h2{font-weight:600;margin:4px 0 14px}
+  a{color:#B39DDB;text-decoration:none}
+  input,select,button{font-size:14px;padding:9px 14px;border-radius:12px;border:none;outline:none}
+  input,select{background:#2A2A35;color:#E0E0E0}
+  button{background:#B39DDB;color:#121212;font-weight:600;cursor:pointer}
+  button:hover{background:#9575CD}
+  button.alt{background:#383848;color:#B39DDB}
+  button.alt:hover{background:#454555}
+  button.danger{background:#424250;color:#E57373}
+  button.danger:hover{background:#EF5350;color:#fff}
+  button:disabled{opacity:.5;cursor:default}
+  .tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .tabs button{background:#2A2A35;color:#B39DDB}
+  .tabs button.on{background:#B39DDB;color:#121212}
+  .box{background:#252530;padding:16px;border-radius:16px;margin:0 0 14px;box-shadow:0 4px 6px rgba(0,0,0,.3)}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .bar input{flex:1;min-width:200px}
+  .split{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  .split > .list{flex:1;min-width:280px;max-height:75vh;overflow:auto;padding:8px}
+  .split > .detail{flex:1.3;min-width:300px}
+  .row{display:flex;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid #333340;cursor:pointer}
+  .row:hover{background:#2D2D3A;border-radius:8px}
+  .row.sel{background:#3A3550;border-radius:8px}
+  .row img{width:46px;height:46px;border-radius:8px;object-fit:cover;background:#1A1A20;flex:none}
+  .row .main{flex:1;min-width:0}
+  .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+  .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#9A9AAA;font-size:13px}
+  .tag{font-size:12px;padding:3px 8px;border-radius:10px;background:#383848;color:#B39DDB;white-space:nowrap}
+  .tag.ok{background:#2E4A35;color:#81C784}
+  .head{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px}
+  .head img{width:140px;height:140px;border-radius:12px;object-fit:cover;background:#1A1A20;flex:none}
+  .note{color:#9A9AAA;font-size:13px}
+  .ep{padding:10px;border-bottom:1px solid #333340}
+  .ep .top{display:flex;gap:10px;align-items:center}
+  .ep .desc{color:#9A9AAA;font-size:13px;margin-top:4px;display:none}
+  .ep.open .desc{display:block}
+  .mini{padding:5px 10px;border-radius:10px;font-size:13px}
+  .prog{height:6px;background:#383848;border-radius:3px;overflow:hidden;margin-top:6px}
+  .prog > div{height:100%;background:#B39DDB}
+  #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#383848;color:#fff;padding:10px 18px;border-radius:20px;display:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+</style>
+</head>
+<body>
+<div id="i18n" hidden
+  data-loading="{{Loading...}}"
+  data-error="{{Couldn't connect. Is Wi-Fi on?}}"
+  data-nothing="{{Nothing found}}"
+  data-subscribe="{{Subscribe}}"
+  data-unsubscribe="{{Unsubscribe}}"
+  data-subscribed="{{Subscribed}}"
+  data-download="{{Download to the Y1}}"
+  data-downloaded="{{On the Y1}}"
+  data-downloading="{{Downloading}}"
+  data-played="{{Played}}"
+  data-queued="{{Queued: the Y1 is downloading it.}}"
+  data-episodes="{{%d episodes}}"
+  data-chapters="{{%d chapters}}"
+  data-space="{{Not enough space on the Y1's card.}}"
+  data-none="{{No downloads in progress}}"
+  data-free="{{Free space on the card: %s}}"
+  data-cancel="{{Cancel}}"
+  data-waiting="{{Waiting}}"
+  data-more="{{More results}}"
+  data-offline="{{offline}}"
+  data-mine="{{My Podcasts}}"
+  data-no-subs="{{No subscriptions yet}}"></div>
+
+<h2>🎙️ {{Podcasts & Audiobooks}}
+  <a href="/" style="font-size:14px;margin-left:10px">📁 {{Files}}</a>
+  <a href="/library" style="font-size:14px;margin-left:10px">📚 {{Library & Playlists}}</a></h2>
+<div class="tabs">
+  <button id="tabPods" class="on" onclick="showTab('pods')">🎙️ {{Podcasts}}</button>
+  <button id="tabBooks" onclick="showTab('books')">📖 {{Audiobooks}}</button>
+  <button id="tabDown" onclick="showTab('down')">⬇️ {{Downloads}} <span id="downCount"></span></button>
+</div>
+
+<div id="podsView">
+  <div class="box bar">
+    <button class="alt" onclick="loadSubs()">⭐ {{My Podcasts}}</button>
+    <select id="country" onchange="loadChart()">
+      <option value="es">{{Spain}}</option><option value="mx">{{Mexico}}</option><option value="ar">{{Argentina}}</option>
+      <option value="us">{{United States}}</option><option value="gb">{{United Kingdom}}</option>
+    </select>
+    <select id="genre" onchange="loadChart()">
+      <option value="0">{{Top Podcasts}}</option><option value="1324">{{Society & Culture}}</option>
+      <option value="1489">{{News}}</option><option value="1487">{{History}}</option><option value="1303">{{Comedy}}</option>
+      <option value="1488">{{True Crime}}</option><option value="1533">{{Science}}</option><option value="1318">{{Technology}}</option>
+      <option value="1545">{{Sports}}</option><option value="1304">{{Education}}</option><option value="1321">{{Business}}</option>
+      <option value="1301">{{Arts}}</option><option value="1309">{{TV & Film}}</option><option value="1310">{{Music}}</option>
+      <option value="1483">{{Fiction}}</option><option value="1512">{{Health & Fitness}}</option><option value="1502">{{Leisure}}</option>
+      <option value="1305">{{Kids & Family}}</option><option value="1314">{{Religion & Spirituality}}</option>
+    </select>
+    <input id="podQ" type="text" placeholder="{{Search podcasts...}}" onkeydown="if(event.key==='Enter')searchPods()">
+    <button onclick="searchPods()">🔍 {{Search}}</button>
+  </div>
+  <div class="split">
+    <div class="box list" id="showList"></div>
+    <div class="box detail" id="showDetail" style="display:none"></div>
+  </div>
+</div>
+
+<div id="booksView" style="display:none">
+  <div class="box bar">
+    <select id="lang" onchange="loadBooks(true)">
+      <option value="es">{{Spanish}}</option><option value="en">{{English}}</option>
+    </select>
+    <input id="bookQ" type="text" placeholder="{{Title or author...}}" onkeydown="if(event.key==='Enter')loadBooks(true)">
+    <button onclick="loadBooks(true)">🔍 {{Search}}</button>
+    <span class="note">{{Free public-domain audiobooks, read by LibriVox volunteers.}}</span>
+  </div>
+  <div class="split">
+    <div class="box list" id="bookList"></div>
+    <div class="box detail" id="bookDetail" style="display:none"></div>
+  </div>
+</div>
+
+<div id="downView" style="display:none">
+  <div class="box" id="downList"></div>
+</div>
+
+<div id="toast"></div>
+<script>
+const T = document.getElementById('i18n').dataset;
+const $ = id => document.getElementById(id);
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function toast(msg){const t=$('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3500);}
+async function api(path, form){
+  const opt = form ? {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(form).toString()} : {};
+  const r = await fetch(path, opt); return r.json();
+}
+function q(o){return new URLSearchParams(o).toString();}
+function mb(b){return b>0?Math.max(1,Math.round(b/1048576))+' MB':'';}
+function dur(s){if(!s)return '';const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+' h '+String(m).padStart(2,'0')+' min':m+' min';}
+function day(ms){return ms?new Date(ms).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}):'';}
+function art(u,size){return u?u.replace('100x100bb',(size||200)+'x'+(size||200)+'bb'):'';}
+
+let tab='pods';
+function showTab(t){
+  tab=t;
+  for(const [k,v] of [['pods','Pods'],['books','Books'],['down','Down']]){
+    $(k+'View').style.display = k===t?'':'none';
+    $('tab'+v).className = k===t?'on':'';
+  }
+  if(t==='books' && !$('bookList').innerHTML) loadBooks(true);
+  if(t==='down') loadDownloads();
+}
+
+// ---------------- podcasts
+let shows=[], current=null;
+function showRows(list, empty){
+  shows=list;
+  $('showList').innerHTML = list.length ? list.map((s,i)=>
+    `<div class="row" id="show${i}" onclick="openShow(${i})"><img src="${esc(art(s.art,100))}" alt="" onerror="this.style.visibility='hidden'">
+     <div class="main"><div class="t">${esc(s.name)}</div><div class="s">${esc(s.author||'')}</div></div>
+     ${s.subscribed?'<span class="tag ok">✓</span>':''}${s.fresh?'<span class="tag">'+s.fresh+'</span>':''}</div>`).join('')
+    : `<div class="note" style="padding:10px">${esc(empty||T.nothing)}</div>`;
+}
+async function loadList(promise, empty){
+  $('showList').innerHTML = `<div class="note" style="padding:10px">${esc(T.loading)}</div>`;
+  try{ const r = await promise; if(!r.ok) throw r.error; showRows(r.shows, empty); }
+  catch(e){ $('showList').innerHTML = `<div class="note" style="padding:10px">${esc(T.error)}</div>`; }
+}
+function loadChart(){ loadList(api('/api/media/chart?'+q({country:$('country').value,genre:$('genre').value}))); }
+function searchPods(){ const s=$('podQ').value.trim(); if(s) loadList(api('/api/media/search?'+q({q:s,country:$('country').value}))); }
+function loadSubs(){ loadList(api('/api/media/subs'), T.noSubs); }
+
+async function openShow(i){
+  document.querySelectorAll('#showList .row').forEach(r=>r.classList.remove('sel'));
+  const row=$('show'+i); if(row) row.classList.add('sel');
+  const s=shows[i]; const d=$('showDetail'); d.style.display='';
+  d.innerHTML = `<div class="note">${esc(T.loading)}</div>`;
+  try{
+    const r = await api('/api/media/feed?'+q({feed:s.feed,name:s.name,art:s.art||'',author:s.author||''}));
+    if(!r.ok) throw r.error;
+    current = r; s.subscribed = r.subscribed;
+    renderShow();
+  }catch(e){ d.innerHTML = `<div class="note">${esc(T.error)}</div>`; }
+}
+function renderShow(){
+  const r=current, d=$('showDetail');
+  d.innerHTML = `<div class="head"><img src="${esc(art(r.art,300))}" alt="">
+     <div style="min-width:0"><div class="t" style="font-size:18px;white-space:normal">${esc(r.name)}</div>
+     <div class="s">${esc(r.author||'')}</div>
+     <div class="note">${T.episodes.replace('%d',r.episodes.length)}${r.offline?' · '+esc(T.offline):''}</div>
+     <button style="margin-top:10px" class="${r.subscribed?'danger':''}" onclick="toggleSub()">${r.subscribed?esc(T.unsubscribe):'＋ '+esc(T.subscribe)}</button></div></div>
+     <div id="eps">${r.episodes.map((e,i)=>epRow(e,i)).join('')}</div>`;
+}
+function epRow(e,i){
+  let right;
+  if(e.state==='downloaded') right=`<span class="tag ok">✓ ${esc(T.downloaded)}</span>`;
+  else if(e.state==='downloading') right=`<span class="tag">${esc(T.downloading)} ${e.percent}%</span>`;
+  else right=`<button class="mini" onclick="event.stopPropagation();getEpisode(${i})">⬇ ${esc(T.download)}</button>`;
+  return `<div class="ep" id="ep${i}" onclick="this.classList.toggle('open')"><div class="top">
+    <div style="flex:1;min-width:0"><div class="t">${esc(e.title)}</div>
+    <div class="s">${esc(day(e.date))}${e.seconds?' · '+dur(e.seconds):''}${e.size?' · '+mb(e.size):''}${e.played?' · '+esc(T.played):''}</div></div>${right}</div>
+    <div class="desc">${esc(e.desc||'')}</div></div>`;
+}
+async function toggleSub(){
+  const r=current;
+  await api(r.subscribed?'/api/media/unsubscribe':'/api/media/subscribe', {feed:r.feed,name:r.name,art:r.art||'',author:r.author||''});
+  r.subscribed=!r.subscribed; renderShow();
+  const s=shows.find(x=>x.feed===r.feed); if(s){s.subscribed=r.subscribed; showRows(shows);}
+  if(r.subscribed) toast(T.subscribed+': '+r.name);
+}
+async function getEpisode(i){
+  const e=current.episodes[i];
+  const r=await api('/api/media/episode',{show:current.name,title:e.title,url:e.url,size:e.size||0,art:current.art||''});
+  if(r.ok){ e.state='downloading'; e.percent=0; $('ep'+i).outerHTML=epRow(e,i); toast(T.queued); refreshCount(); }
+}
+
+// ---------------- audiobooks
+let books=[], bookPage=1;
+async function loadBooks(fresh){
+  if(fresh){ books=[]; bookPage=1; $('bookList').innerHTML=`<div class="note" style="padding:10px">${esc(T.loading)}</div>`; }
+  try{
+    const r=await api('/api/media/books?'+q({lang:$('lang').value,q:$('bookQ').value.trim(),page:bookPage}));
+    if(!r.ok) throw r.error;
+    books=books.concat(r.books); renderBooks(r.more);
+  }catch(e){ $('bookList').innerHTML=`<div class="note" style="padding:10px">${esc(T.error)}</div>`; }
+}
+function renderBooks(more){
+  $('bookList').innerHTML = (books.length ? books.map((b,i)=>
+    `<div class="row" id="book${i}" onclick="openBook(${i})"><img src="https://archive.org/services/img/${encodeURIComponent(b.id)}" alt="">
+     <div class="main"><div class="t">${esc(b.title)}</div><div class="s">${esc(b.author)}</div></div>
+     ${b.downloaded?'<span class="tag ok">✓</span>':b.downloading?'<span class="tag">⬇</span>':''}</div>`).join('')
+    : `<div class="note" style="padding:10px">${esc(T.nothing)}</div>`)
+    + (more?`<button class="alt" style="margin:10px" onclick="bookPage++;loadBooks(false)">${esc(T.more)}</button>`:'');
+}
+let book=null;
+async function openBook(i){
+  document.querySelectorAll('#bookList .row').forEach(r=>r.classList.remove('sel'));
+  const row=$('book'+i); if(row) row.classList.add('sel');
+  const d=$('bookDetail'); d.style.display=''; d.innerHTML=`<div class="note">${esc(T.loading)}</div>`;
+  try{
+    const r=await api('/api/media/book?'+q({id:books[i].id})); if(!r.ok) throw r.error;
+    book=r; book.index=i; renderBook();
+  }catch(e){ d.innerHTML=`<div class="note">${esc(T.error)}</div>`; }
+}
+function renderBook(){
+  const b=book;
+  const action = b.downloaded ? `<span class="tag ok">✓ ${esc(T.downloaded)}</span>`
+    : b.downloading ? `<span class="tag">${esc(T.downloading)} ${b.percent}%</span>`
+    : `<button onclick="getBook()">⬇ ${esc(T.download)} (${mb(b.size)})</button>`;
+  $('bookDetail').innerHTML = `<div class="head"><img src="https://archive.org/services/img/${encodeURIComponent(b.id)}" alt="">
+    <div style="min-width:0"><div class="t" style="font-size:18px;white-space:normal">${esc(b.title)}</div>
+    <div class="s">${esc(b.author)}</div>
+    <div class="note">${T.chapters.replace('%d',b.chapters)} · ${dur(b.seconds)} · ${mb(b.size)}</div>
+    <div style="margin-top:10px">${action}</div></div></div>
+    <div class="note">${esc(b.desc||'')}</div>`;
+}
+async function getBook(){
+  const r=await api('/api/media/book/download',{id:book.id});
+  if(r.ok){ book.downloading=true; book.percent=0; books[book.index].downloading=true; renderBook(); toast(T.queued); refreshCount(); }
+  else toast(r.error==='space'?T.space:T.error);
+}
+
+// ---------------- downloads
+function gb(b){return b>=10*1073741824?(b/1073741824).toFixed(1)+' GB':mb(b);}
+// Rows are kept and only their progress is updated, so a Cancel button doesn't move under the pointer.
+let jobs=[];
+async function loadDownloads(){
+  try{
+    const r=await api('/api/media/downloads');
+    $('downCount').textContent = r.jobs.length?'('+r.jobs.length+')':'';
+    if(tab!=='down') return;
+    const box=$('downList');
+    const keys=r.jobs.map(j=>j.type+'|'+j.key).join('\n');
+    if(keys!==box.dataset.keys){
+      box.dataset.keys=keys; jobs=r.jobs;
+      box.innerHTML = (r.jobs.length ? r.jobs.map((j,i)=>
+        `<div class="ep"><div class="top"><div style="flex:1;min-width:0"><div class="t">${j.type==='book'?'📖':'🎙️'} ${esc(j.title)}</div>
+         <div class="s" id="jobText${i}"></div><div class="prog"><div id="jobBar${i}"></div></div></div>
+         <button class="danger mini" onclick="cancelJob(${i})">${esc(T.cancel)}</button></div></div>`).join('')
+        : `<div class="note">${esc(T.none)}</div>`) + `<div class="note" style="margin-top:10px" id="freeNote"></div>`;
+    }
+    r.jobs.forEach((j,i)=>{
+      $('jobText'+i).textContent = j.sub+(j.detail?' · '+j.detail:'')+' · '+(j.running?j.percent+'%':T.waiting);
+      $('jobBar'+i).style.width = j.percent+'%';
+    });
+    $('freeNote').textContent = T.free.replace('%s', gb(r.free));
+  }catch(e){}
+}
+async function cancelJob(i){ const j=jobs[i]; if(!j) return; await api('/api/media/cancel',{type:j.type,key:j.key}); loadDownloads(); }
+function refreshCount(){ loadDownloads(); }
+setInterval(()=>{ if(tab==='down') loadDownloads(); else refreshCount(); }, 3000);
+
+loadChart();
+loadDownloads();
+</script>
+</body>
+</html>
