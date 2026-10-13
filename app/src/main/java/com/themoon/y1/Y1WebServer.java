@@ -233,224 +233,18 @@ public class Y1WebServer extends Thread {
                 if (contentLength < 0) throw new java.io.IOException("Invalid length");
 
                 // 1️⃣ 화면 UI 전송 (프론트엔드 - 인라인 플레이어 + 🚀 텍스트 에디터 탑재 + 🚀 드래그 앤 드롭 지원)
-                if (method.equals("GET") && path.equals("/")) {
-                    String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
-                            "<title>Y1 File Manager</title><style>" +
-                            // 🚀 [디자인 수정] 바탕색 및 기본 글꼴 (Material Dark Theme 기반)
-                            "body{font-family:'Roboto', 'Segoe UI', sans-serif; background:#1E1E24; color:#E0E0E0; padding:20px; text-align:center; max-width:800px; margin:0 auto; padding-bottom:120px;} " +
-                            "input, select, button{font-size:14px; padding:10px 16px; margin:5px; border-radius:20px; border:none; outline:none; transition:0.2s;} " +
-                            "input[type=text]{width:calc(100% - 120px); background:#2A2A35; color:#E0E0E0; border-radius:12px; padding:12px;} " +
-
-                            // 🚀 [디자인 수정] 버튼 색상 (보라색 포인트 & 모던 톤)
-                            "button{background:#B39DDB; color:#121212; font-weight:600; cursor:pointer;} " + // 기본 버튼 (연한 보라)
-                            "button:hover{background:#9575CD;} " +
-                            "button.danger{background:#424250; color:#E57373;} " + // 삭제/취소 버튼 (어두운 회색 바탕, 빨간 글씨)
-                            "button.danger:hover{background:#EF5350; color:#fff;} " +
-                            "button.action{background:#383848; color:#B39DDB;} " + // 서브 액션 버튼 (어두운 바탕, 보라색 글씨)
-                            "button.action:hover{background:#454555;} " +
-
-                            // 🚀 [디자인 수정] 박스 및 리스트 아이템
-                            ".box{background:#252530; padding:20px; border-radius:16px; margin:15px 0; text-align:left; box-shadow:0 4px 6px rgba(0,0,0,0.3);} " +
-                            ".item{display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #333340; cursor:pointer; transition:0.2s;} " +
-                            ".item:last-child{border-bottom:none;} " +
-                            ".item:hover{background:#2D2D3A; border-radius:8px;} " +
-                            ".item-left{display:flex; align-items:center; flex-grow:1; overflow:hidden; gap:12px;} " +
-                            ".item-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500;} " +
-                            ".thumb{width:40px; height:40px; object-fit:cover; border-radius:8px; background:#1A1A20;} " +
-                            ".icon{font-size:22px; width:40px; text-align:center; color:#B39DDB;} " + // 아이콘도 연보라 톤으로 통일
-                            ".btn-group{display:flex; gap:6px;} " +
-
-                            // 오디오 플레이어
-                            "#audioBox{position:fixed; bottom:0; left:0; right:0; background:#252530; border-top:1px solid #454555; padding:15px; display:none; z-index:100; box-shadow:0 -2px 10px rgba(0,0,0,0.5);} " +
-                            "audio{width:100%; max-width:800px; margin:0 auto; display:block; outline:none; border-radius:24px;} " +
-
-                            // 드래그 앤 드롭 애니메이션
-                            "#uploadBox{transition:0.3s; border:2px dashed #454555;} " +
-                            "#uploadBox.dragover{background:#2D2D3A; border:2px dashed #B39DDB;} " +
-
-                            // 텍스트 에디터 모달
-                            "#editorBox{position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(18,18,22,0.95); z-index:200; padding:20px; box-sizing:border-box; display:none;} " +
-                            "#editorArea{width:100%; height:calc(100% - 120px); background:#1E1E24; color:#E0E0E0; font-family:'Courier New', monospace; font-size:15px; border:1px solid #454555; border-radius:12px; padding:15px; resize:none; box-shadow:inset 0 2px 5px rgba(0,0,0,0.3);} " +
-                            "#editorTitle{color:#B39DDB; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600;}" +
-                            "</style></head><body>" +
-
-                            "<h2 style='color:#E0E0E0; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager " +
-                            "<a href='/lastfm' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>🎧 Last.fm Settings</a> " +
-                            "<a href='/library' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>📚 " + tr("Library & Playlists") + "</a> " +
-                            "<a href='/media' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>🎙️ " + tr("Podcasts & Audiobooks") + "</a></h2>" +
-
-                            // 업로드/폴더생성 박스
-                            "<div class='box' id='uploadBox'>" +
-                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>📍 <span id='currentPathText'>/</span></div>" +
-                            "<div style='text-align:center; color:#9E9E9E; font-size:13px; margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid #333340;'>💡 <b>Drag & Drop</b> files anywhere in this box to upload instantly!</div>" +
-                            "<div style='display:flex; gap:8px; margin-bottom:15px;'>" +
-                            "<input type='text' id='fName' placeholder='New folder name...'>" +
-                            "<button onclick='createFolder()'>Create</button></div>" +
-                            "<div style='display:flex; gap:8px; align-items:center;'>" +
-                            "<input type='file' id='fInput' multiple accept='*/*' style='flex-grow:1; color:#9E9E9E;'>" +
-                            "<button onclick='uploadAll()' class='action'>Upload Here</button></div>" +
-                            "<div id='status' style='margin-top:12px; color:#81C784; font-weight:600; font-size:14px;'></div>" +
-                            "</div>" +
-
-                            // 파일 리스트 박스
-                            "<div class='box' id='fileList'>Loading...</div>" +
-
-                            // 플로팅 오디오 플레이어
-                            "<div id='audioBox'>" +
-                            "<div id='audioTitle' style='max-width:800px; margin:0 auto 12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#B39DDB;'></div>" +
-                            "<audio id='audioPlayer' controls controlsList='nodownload'></audio>" +
-                            "</div>" +
-
-                            // 전체화면 텍스트 에디터
-                            "<div id='editorBox'>" +
-                            "<h3 id='editorTitle'>📝 Edit File</h3>" +
-                            "<textarea id='editorArea' spellcheck='false' wrap='off'></textarea>" +
-                            "<div style='display:flex; gap:12px; margin-top:15px;'>" +
-                            "<button class='action' style='flex:1; background:#B39DDB; color:#121212;' onclick='saveFile()'>💾 Save Settings</button>" +
-                            "<button class='danger' style='flex:1;' onclick='closeEditor()'>Cancel</button>" +
-                            "</div></div>" +
-
-                            "<script>" +
-                            "const nativeFetch = window.fetch.bind(window); window.fetch = (url, options) => nativeFetch(url, options).then(r => { if (!r.ok) { document.getElementById('status').textContent = 'Request failed (' + r.status + ')'; throw Error('Request failed'); } return r; });" +
-                            "let currentPath = '';" +
-                            "function loadList() {" +
-                            " fetch('/api/list?dir=' + encodeURIComponent(currentPath)).then(r=>{if(!r.ok) throw Error('Cannot load folder'); return r.json();}).then(data=>{" +
-                            " document.getElementById('currentPathText').textContent='/' + currentPath;" +
-                            " const list=document.getElementById('fileList'); list.textContent='';" +
-                            " function button(row,label,action) {const b=document.createElement('button');b.className='action';b.textContent=label;b.onclick=e=>{e.stopPropagation();action(e);};row.appendChild(b);}" +
-                            " if(currentPath) {const back=document.createElement('div');back.className='item';back.textContent='\u2190 Go Back';back.onclick=goUp;list.appendChild(back);}" +
-                            " data.forEach(f=>{" +
-                            " const row=document.createElement('div');row.className='item';" +
-                            " const label=document.createElement('span');label.className='item-name';label.textContent=(f.isDir?'\ud83d\udcc1 ':'')+f.name;row.appendChild(label);" +
-                            " const path=encodeURIComponent(currentPath?currentPath+'/'+f.name:f.name);" +
-                            " const ext=f.name.split('.').pop().toLowerCase();" +
-                            " if(f.isDir) row.onclick=()=>goInto(f.name);" +
-                            " else {" +
-                            " if(['jpg','jpeg','png','webp','gif'].includes(ext)) {const image=document.createElement('img');image.className='thumb';image.src='/api/file?path='+path;image.loading='lazy';row.insertBefore(image,label);row.onclick=()=>window.open('/api/file?path='+path,'_blank');}" +
-                            " if(['mp3','flac','wav','ogg','opus','m4a','aac'].includes(ext)) row.onclick=()=>playAudio(path,f.name);" +
-                            " if(['json','txt','xml','ini','md','m3u','m3u8','eq'].includes(ext)) button(row,'Edit',e=>openEditor(e,path,f.name));" +
-                            " button(row,'Download',()=>{window.location.href='/api/download?path='+path;});" +
-                            " }" +
-                            " button(row,'Rename',e=>renameItem(e,f.name));" +
-                            " button(row,'Delete',e=>deleteItem(e,f.name));" +
-                            " list.appendChild(row);" +
-                            " });" +
-                            " }).catch(e=>{document.getElementById('status').textContent=e.message;});" +
-                            "}" +
-                            "function goInto(dirName) { currentPath = currentPath ? currentPath + '/' + dirName : dirName; loadList(); }" +
-                            "function goUp() { let parts = currentPath.split('/'); parts.pop(); currentPath = parts.join('/'); loadList(); }" +
-
-                            "function playAudio(path, name) {" +
-                            "  document.getElementById('audioBox').style.display = 'block';" +
-                            "  document.getElementById('audioTitle').innerText = '▶ ' + name;" +
-                            "  let player = document.getElementById('audioPlayer');" +
-                            "  player.src = '/api/file?path=' + path;" +
-                            "  player.play();" +
-                            "}" +
-
-                            "let editingPath = '';" +
-                            "function openEditor(e, path, name) {" +
-                            "  if(e) e.stopPropagation();" +
-                            "  editingPath = path;" +
-                            "  document.getElementById('editorTitle').innerText = '📝 Editing: ' + name;" +
-                            "  document.getElementById('editorArea').value = 'Loading content...';" +
-                            "  document.getElementById('editorBox').style.display = 'block';" +
-                            "  fetch('/api/file?path=' + path).then(r => r.text()).then(txt => {" +
-                            "    document.getElementById('editorArea').value = txt;" +
-                            "  });" +
-                            "}" +
-                            "function closeEditor() { document.getElementById('editorBox').style.display = 'none'; editingPath=''; }" +
-                            "function saveFile() {" +
-                            "  let content = document.getElementById('editorArea').value;" +
-                            "  fetch('/api/save?path=' + editingPath, { method: 'POST', body: content }).then(() => {" +
-                            "    alert('✅ File saved successfully!'); closeEditor();" +
-                            "  }).catch(e => alert('Failed to save.'));" +
-                            "}" +
-
-                            "function createFolder() { " +
-                            "  var n = document.getElementById('fName').value; if(!n) return;" +
-                            "  fetch('/api/create?dir=' + encodeURIComponent(currentPath) + '&name=' + encodeURIComponent(n), {method:'POST'}).then(()=>{ document.getElementById('fName').value=''; loadList();});" +
-                            "}" +
-                            "function renameItem(e, oldName) { " +
-                            "  e.stopPropagation();" +
-                            "  var newName = prompt('Enter new name for: ' + oldName, oldName);" +
-                            "  if(!newName || newName === oldName) return;" +
-                            "  fetch('/api/rename?dir=' + encodeURIComponent(currentPath) + '&old=' + encodeURIComponent(oldName) + '&new=' + encodeURIComponent(newName), {method:'POST'}).then(()=>loadList());" +
-                            "}" +
-                            "function deleteItem(e, name) { " +
-                            "  e.stopPropagation();" +
-                            "  if(!confirm('Delete ' + name + '?')) return;" +
-                            "  fetch('/api/delete?path=' + encodeURIComponent(currentPath ? currentPath + '/' + name : name), {method:'POST'}).then(()=>loadList());" +
-                            "}" +
-
-                            "async function uploadAll(droppedFiles) { " +
-                            "  var files = droppedFiles || document.getElementById('fInput').files; var st = document.getElementById('status'); " +
-                            "  if(files.length === 0) return;" +
-                            "  for(var i=0; i<files.length; i++) { " +
-                            "    st.innerText = 'Uploading: ' + files[i].name + ' (' + (i+1) + '/' + files.length + ')'; " +
-                            "    await fetch('/api/upload?dir=' + encodeURIComponent(currentPath) + '&name=' + encodeURIComponent(files[i].name), {method:'POST', body:files[i]}); " +
-                            "  } " +
-                            "  st.innerText = '✅ Upload Complete!'; document.getElementById('fInput').value=''; loadList();" +
-                            "}" +
-
-                            "async function uploadFolderItems(fileList) { " +
-                            "  var st = document.getElementById('status'); " +
-                            "  for(var i=0; i<fileList.length; i++) { " +
-                            "    let item = fileList[i]; " +
-                            "    let displayPath = item.path ? item.path + item.file.name : item.file.name; " +
-                            "    st.innerText = 'Uploading: ' + displayPath + ' (' + (i+1) + '/' + fileList.length + ')'; " +
-                            "    let targetDir = currentPath; " +
-                            "    if(item.path) { " +
-                            "       let subDir = item.path.replace(/\\/$/, ''); " +
-                            "       targetDir = currentPath ? currentPath + '/' + subDir : subDir; " +
-                            "    } " +
-                            "    await fetch('/api/upload?dir=' + encodeURIComponent(targetDir) + '&name=' + encodeURIComponent(item.file.name), {method:'POST', body:item.file}); " +
-                            "  } " +
-                            "  st.innerText = '✅ Folder Upload Complete!'; loadList();" +
-                            "}" +
-
-                            "let dropZone = document.getElementById('uploadBox');" +
-                            "dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });" +
-                            "dropZone.addEventListener('dragleave', function(e) { e.preventDefault(); dropZone.classList.remove('dragover'); });" +
-                            "dropZone.addEventListener('drop', function(e) { " +
-                            "  e.preventDefault(); dropZone.classList.remove('dragover'); " +
-                            "  let items = e.dataTransfer.items; " +
-                            "  if(!items) { if(e.dataTransfer.files.length > 0) uploadAll(e.dataTransfer.files); return; } " +
-                            "  " +
-                            "  document.getElementById('status').innerText = 'Scanning dropped items...'; " +
-                            "  let filesToUpload = []; " +
-                            "  let pending = 0; " +
-                            "  " +
-                            "  function scanEntry(item, path) { " +
-                            "    if(item.isFile) { " +
-                            "      pending++; " +
-                            "      item.file(f => { filesToUpload.push({file: f, path: path}); pending--; checkDone(); }); " +
-                            "    } else if(item.isDirectory) { " +
-                            "      let dirReader = item.createReader(); " +
-                            "      pending++; " +
-                            "      function readBatch() { dirReader.readEntries(entries => { " +
-                            "        if(!entries.length) { pending--; checkDone(); return; } " +
-                            "        entries.forEach(entry => scanEntry(entry, path + item.name + '/')); " +
-                            "        readBatch(); " +
-                            "      }, () => { pending--; document.getElementById('status').textContent='Cannot read dropped folder'; }); } readBatch(); " +
-                            "    } " +
-                            "  } " +
-                            "  function checkDone() { " +
-                            "    if(pending === 0) { " +
-                            "      if(filesToUpload.length > 0) uploadFolderItems(filesToUpload); " +
-                            "      else document.getElementById('status').innerText = 'No files found.'; " +
-                            "    } " +
-                            "  } " +
-                            "  for(let i=0; i<items.length; i++) { " +
-                            "    let entry = items[i].webkitGetAsEntry(); " +
-                            "    if(entry) scanEntry(entry, ''); " +
-                            "  } " +
-                            "});" +
-
-                            "window.onload = loadList;" +
-                            "</script></body></html>";
-
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
+                // 📁 [Web redesign] The file manager page: assets/web/index.html (desktop and phone layouts),
+                // translated like the Library and Podcasts pages.
+                if (method.equals("GET") && (path.equals("/") || path.startsWith("/?"))) {
+                    byte[] page = LibraryWeb.page(context, "web/index.html").getBytes("UTF-8");
+                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: " + page.length + "\r\n\r\n").getBytes("UTF-8"));
+                    os.write(page);
+                }
+                // the card's space, for the pages' header
+                else if (method.equals("GET") && path.equals("/api/storage")) {
+                    android.os.StatFs fs = new android.os.StatFs(rootFolder.getAbsolutePath());
+                    long block = fs.getBlockSize();
+                    writeJson(os, "{\"total\":" + ((long) fs.getBlockCount() * block) + ",\"free\":" + ((long) fs.getAvailableBlocks() * block) + "}");
                 }
                 // 📚 [Library web] Library & playlists page and its API (see LibraryWeb).
                 else if (method.equals("GET") && (path.equals("/library") || path.startsWith("/library?"))) {
@@ -583,12 +377,26 @@ public class Y1WebServer extends Thread {
                     if (targetDir.exists() && targetDir.isDirectory()) {
                         File[] files = targetDir.listFiles();
                         if (files != null) {
+                            java.util.Arrays.sort(files, new java.util.Comparator<File>() {
+                                @Override
+                                public int compare(File a, File b) {
+                                    return a.getName().compareToIgnoreCase(b.getName());
+                                }
+                            });
                             for (int i=0; i<2; i++) {
                                 for (File f : files) {
                                     boolean isDir = f.isDirectory();
                                     if ((i == 0 && isDir) || (i == 1 && !isDir)) {
                                         if (json.length() > 1) json.append(",");
-                                        json.append("{\"name\":").append(org.json.JSONObject.quote(f.getName())).append(",\"isDir\":").append(isDir).append("}");
+                                        json.append("{\"name\":").append(org.json.JSONObject.quote(f.getName())).append(",\"isDir\":").append(isDir)
+                                                .append(",\"modified\":").append(f.lastModified());
+                                        if (isDir) {
+                                            String[] inside = f.list();
+                                            json.append(",\"count\":").append(inside == null ? 0 : inside.length);
+                                        } else {
+                                            json.append(",\"size\":").append(f.length());
+                                        }
+                                        json.append("}");
                                     }
                                 }
                             }

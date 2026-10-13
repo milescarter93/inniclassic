@@ -36,9 +36,24 @@
   .note{color:#9A9AAA;font-size:13px}
   #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#383848;color:#fff;padding:10px 18px;border-radius:20px;display:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   .mini{padding:5px 10px;border-radius:10px;font-size:13px}
+
+  /* the header shared by every page of the Y1 */
+  body{margin:0;padding:0;max-width:none;background:#17171C}
+  .page{max-width:1200px;margin:0 auto;padding:20px 24px 80px}
+  .top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:0 20px;height:56px;background:#1C1C23;border-bottom:1px solid #33333F}
+  .brand{font-weight:700;font-size:17px;white-space:nowrap;color:#E8E8EE}
+  .brand span{color:#B39DDB}
+  .nav{display:flex;gap:4px;overflow-x:auto;flex:1;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav a{padding:8px 12px;border-radius:9px;color:#9A9AAA;white-space:nowrap;font-weight:500}
+  .nav a:hover{background:#2A2A34;color:#E8E8EE}
+  .nav a.on{background:#2A2A34;color:#E8E8EE}
+  @media (max-width:760px){.top{padding:0 12px;gap:10px;height:52px}.page{padding:14px 12px 80px}}
 </style>
 </head>
 <body>
+<div class="top"><div class="brand">Y1 <span>InniClassic</span></div><nav class="nav"><a href="/">📁 {{Files}}</a><a class="on" href="/library">📚 {{Library & Playlists}}</a><a href="/media">🎙️ {{Podcasts & Audiobooks}}</a><a href="/lastfm">🎧 Last.fm</a></nav></div>
+<div class="page">
 <div id="i18n" hidden
   data-saved="{{Saved. The Y1 will update its library in a few seconds.}}"
   data-error="{{Error}}"
@@ -55,7 +70,6 @@
   data-unsaved="{{There are unsaved changes in the playlist.}}"
   data-missing="{{not found}}"></div>
 
-<h2>📚 {{Library & Playlists}} <a href="/" style="font-size:14px;margin-left:10px">📁 {{Files}}</a> <a href="/media" style="font-size:14px;margin-left:10px">🎙️ {{Podcasts & Audiobooks}}</a></h2>
 <div class="tabs">
   <button id="tabSongs" class="on" onclick="showTab('songs')">{{Songs}}</button>
   <button id="tabLists" onclick="showTab('lists')">{{Playlists}}</button>
@@ -237,5 +251,6 @@ async function deleteList(){
 window.onbeforeunload = () => listDirty ? T.unsaved : undefined;
 loadSongs(); loadLists();
 </script>
+</div>
 </body>
 </html>

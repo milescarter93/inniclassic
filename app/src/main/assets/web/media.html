@@ -46,9 +46,24 @@
   .prog{height:6px;background:#383848;border-radius:3px;overflow:hidden;margin-top:6px}
   .prog > div{height:100%;background:#B39DDB}
   #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#383848;color:#fff;padding:10px 18px;border-radius:20px;display:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+
+  /* the header shared by every page of the Y1 */
+  body{margin:0;padding:0;max-width:none;background:#17171C}
+  .page{max-width:1200px;margin:0 auto;padding:20px 24px 80px}
+  .top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:0 20px;height:56px;background:#1C1C23;border-bottom:1px solid #33333F}
+  .brand{font-weight:700;font-size:17px;white-space:nowrap;color:#E8E8EE}
+  .brand span{color:#B39DDB}
+  .nav{display:flex;gap:4px;overflow-x:auto;flex:1;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav a{padding:8px 12px;border-radius:9px;color:#9A9AAA;white-space:nowrap;font-weight:500}
+  .nav a:hover{background:#2A2A34;color:#E8E8EE}
+  .nav a.on{background:#2A2A34;color:#E8E8EE}
+  @media (max-width:760px){.top{padding:0 12px;gap:10px;height:52px}.page{padding:14px 12px 80px}}
 </style>
 </head>
 <body>
+<div class="top"><div class="brand">Y1 <span>InniClassic</span></div><nav class="nav"><a href="/">📁 {{Files}}</a><a href="/library">📚 {{Library & Playlists}}</a><a class="on" href="/media">🎙️ {{Podcasts & Audiobooks}}</a><a href="/lastfm">🎧 Last.fm</a></nav></div>
+<div class="page">
 <div id="i18n" hidden
   data-loading="{{Loading...}}"
   data-error="{{Couldn't connect. Is Wi-Fi on?}}"
@@ -73,9 +88,6 @@
   data-mine="{{My Podcasts}}"
   data-no-subs="{{No subscriptions yet}}"></div>
 
-<h2>🎙️ {{Podcasts & Audiobooks}}
-  <a href="/" style="font-size:14px;margin-left:10px">📁 {{Files}}</a>
-  <a href="/library" style="font-size:14px;margin-left:10px">📚 {{Library & Playlists}}</a></h2>
 <div class="tabs">
   <button id="tabPods" class="on" onclick="showTab('pods')">🎙️ {{Podcasts}}</button>
   <button id="tabBooks" onclick="showTab('books')">📖 {{Audiobooks}}</button>
@@ -295,5 +307,6 @@ setInterval(()=>{ if(tab==='down') loadDownloads(); else refreshCount(); }, 3000
 loadChart();
 loadDownloads();
 </script>
+</div>
 </body>
 </html>
