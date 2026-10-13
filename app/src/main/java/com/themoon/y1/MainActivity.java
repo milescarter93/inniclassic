@@ -5121,7 +5121,10 @@ public class MainActivity extends Activity {
                 serverWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Y1:WebServerLock");
                 serverWakeLock.acquire();
 
-                serverWifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL, "Y1:WebServerWifiLock");
+                // 🚀 [Web server] HIGH_PERF, not FULL: FULL keeps Wi-Fi on but still lets the radio power-save
+                // between beacons, and on the Y1 most connections from the computer were then lost (14 of 20
+                // requests failed). HIGH_PERF turns power saving off while the server runs.
+                serverWifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Y1:WebServerWifiLock");
                 serverWifiLock.acquire();
             } catch (Exception e) {
                 // (앱 매니페스트에 권한이 없더라도 가상 암전 모드가 있기 때문에 2차 우회 방어가 완벽히 작동합니다)

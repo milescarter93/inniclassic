@@ -43,9 +43,44 @@ public class Y1WebServer extends Thread {
         return socket == null ? -1 : socket.getLocalPort();
     }
 
+    // 🚀 [Web server] The Y1's MediaTek Wi-Fi dozes whenever the Y1 itself sends nothing - even with a
+    // high-performance Wi-Fi lock held - and then drops most connections from the computer (measured: 6 of
+    // 20 requests answered; 20 of 20 while the Y1 was sending). So while the server runs it sends a 1-byte
+    // UDP packet to the router (discard port) every 200 ms, which keeps the radio awake.
+    private void keepWifiAwake() {
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                java.net.DatagramSocket ds = null;
+                try {
+                    WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+                    int gw = wm.getDhcpInfo().gateway;
+                    if (gw == 0) return;
+                    java.net.InetAddress router = java.net.InetAddress.getByAddress(new byte[] { (byte) (gw & 0xff),
+                            (byte) (gw >> 8 & 0xff), (byte) (gw >> 16 & 0xff), (byte) (gw >> 24 & 0xff) });
+                    ds = new java.net.DatagramSocket();
+                    java.net.DatagramPacket packet = new java.net.DatagramPacket(new byte[1], 1, router, 9);
+                    while (running) {
+                        try {
+                            ds.send(packet);
+                        } catch (Exception ignored) {
+                        }
+                        Thread.sleep(200);
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    if (ds != null) ds.close();
+                }
+            }
+        }, "Y1WebKeepAwake");
+        t.setDaemon(true);
+        t.start();
+    }
+
     public void run() {
         try {
             serverSocket = new ServerSocket(port);
+            keepWifiAwake();
             while (running) {
                 Socket socket = serverSocket.accept();
                 clients.add(socket);
