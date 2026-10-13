@@ -2225,15 +2225,14 @@ public class MainActivity extends Activity {
         btnServerToggle.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
+                // 🚀 [Themes] the theme's selection bar and text colours (it was a fixed light grey button)
                 if (hasFocus) {
-                    // 🚀 휠이 올라갔을 때: 확실한 우유빛 배경과 검은색 굵은(Bold) 글씨로 반전!
-                    btnServerToggle.setBackgroundColor(0xDDFFFFFF);
-                    btnServerToggle.setTextColor(0xFF000000);
+                    btnServerToggle.setBackground(createFocusedButtonBackground());
+                    btnServerToggle.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     btnServerToggle.setTypeface(ThemeManager.getCustomFontBold());
                 } else {
-                    // 🚀 휠이 벗어났을 때: 다시 은은한 반투명 유리창과 얇은 흰색 글씨로 복귀!
-                    btnServerToggle.setBackgroundColor(0x15FFFFFF);
-                    btnServerToggle.setTextColor(0xFFFFFFFF);
+                    btnServerToggle.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
+                    btnServerToggle.setTextColor(ThemeManager.getTextColorPrimary());
                     btnServerToggle.setTypeface(ThemeManager.getCustomFont(), Typeface.NORMAL);
                 }
             }
@@ -2385,6 +2384,7 @@ public class MainActivity extends Activity {
 
         ivPlayerShuffleStatus = findViewById(R.id.iv_player_shuffle_status);
         ivPlayerRepeatStatus = findViewById(R.id.iv_player_repeat_status);
+        applyThemeToNowPlaying();
 
         // 🚀 [iPod 스타일] Now Playing 하단 바 4단계 순환 위젯 바인딩
         rowPlayerProgress = findViewById(R.id.row_player_progress);
@@ -4301,7 +4301,7 @@ public class MainActivity extends Activity {
                     android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) playerProgress
                             .getProgressDrawable();
                     android.graphics.drawable.Drawable progress = layer.findDrawableByLayerId(android.R.id.progress);
-                    if (progress != null && !ThemeManager.isClassicTheme())
+                    if (progress != null && !ThemeManager.isIpodTheme())
                         progress.setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN);
                 } catch (Exception e) {
                     playerProgress.getProgressDrawable().setColorFilter(themeFocusColor,
@@ -4313,7 +4313,7 @@ public class MainActivity extends Activity {
                     android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) volumeProgress
                             .getProgressDrawable();
                     android.graphics.drawable.Drawable progress = layer.findDrawableByLayerId(android.R.id.progress);
-                    if (progress != null && !ThemeManager.isClassicTheme())
+                    if (progress != null && !ThemeManager.isIpodTheme())
                         progress.setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN);
                 } catch (Exception e) {
                     volumeProgress.getProgressDrawable().setColorFilter(themeFocusColor,
@@ -4325,7 +4325,7 @@ public class MainActivity extends Activity {
                     android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) pbBrightness
                             .getProgressDrawable();
                     android.graphics.drawable.Drawable progress = layer.findDrawableByLayerId(android.R.id.progress);
-                    if (progress != null && !ThemeManager.isClassicTheme())
+                    if (progress != null && !ThemeManager.isIpodTheme())
                         progress.setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN);
                 } catch (Exception e) {
                     pbBrightness.getProgressDrawable().setColorFilter(themeFocusColor,
@@ -5286,8 +5286,15 @@ public class MainActivity extends Activity {
             plain.setCornerRadius(ThemeManager.isClassicTheme() ? 0 : ThemeManager.getButtonRadius() * getResources().getDisplayMetrics().density);
             return plain;
         }
-        if (ThemeManager.isClassicTheme()) return new GradientDrawable(
+        if (ThemeManager.isIpodTheme()) return new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xFF62B7F5, 0xFF2588DC, 0xFF0865C4});
+        if (ThemeManager.isClassicTheme()) {
+            // 🚀 [Themes] a compact theme that isn't the iPod: a flat bar in its own colour and corners
+            GradientDrawable flat = new GradientDrawable();
+            flat.setColor(ThemeManager.getListButtonFocusedBg());
+            flat.setCornerRadius(ThemeManager.getButtonRadius() * getResources().getDisplayMetrics().density);
+            return flat;
+        }
         int base = ThemeManager.getListButtonFocusedBg();
         float[] hsv = new float[3];
         Color.colorToHSV(base, hsv);
@@ -13903,6 +13910,71 @@ public class MainActivity extends Activity {
         return Color.rgb(Math.round(Color.red(over) * a + Color.red(base) * (1 - a)),
                 Math.round(Color.green(over) * a + Color.green(base) * (1 - a)),
                 Math.round(Color.blue(over) * a + Color.blue(base) * (1 - a)));
+    }
+
+    // 🚀 [Themes] Now Playing's layout is the iPod's white screen with blue accents; the iPod themes keep
+    // it, every other theme gets its own colours: background, text, progress bars, reflection and accents.
+    private void applyThemeToNowPlaying() {
+        float d = getResources().getDisplayMetrics().density;
+        if (ThemeManager.isClassicTheme()) { // compact themes: the Wi-Fi / Bluetooth title is in the status bar
+            for (View screen : new View[] { layoutBluetoothMode, layoutWifiMode }) {
+                if (!(screen instanceof ViewGroup) || ((ViewGroup) screen).getChildCount() == 0) continue;
+                View title = ((ViewGroup) screen).getChildAt(0);
+                if (title instanceof TextView) title.setVisibility(View.GONE);
+                screen.setPadding(screen.getPaddingLeft(), (int) (32 * d), screen.getPaddingRight(), screen.getPaddingBottom());
+            }
+        }
+        if (ThemeManager.isIpodTheme() || layoutPlayerMode == null) return;
+        int bg = menuDialogBgColor(), primary = ThemeManager.getTextColorPrimary(),
+                secondary = ThemeManager.getTextColorSecondary(), accent = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
+        layoutPlayerMode.setBackgroundColor(bg);
+        Typeface regular = ThemeManager.getCustomFont(), bold = ThemeManager.getCustomFontBold();
+        int[][] texts = { { R.id.tv_player_title, primary, 1 }, { R.id.tv_player_artist, primary, 0 },
+                { R.id.tv_player_album, secondary, 0 }, { R.id.tv_player_track_count, secondary, 1 },
+                { R.id.tv_player_format, secondary, 0 }, { R.id.tv_player_next, secondary, 0 },
+                { R.id.tv_player_time_current, primary, 1 }, { R.id.tv_player_time_total, primary, 1 },
+                { R.id.tv_player_seek_current, primary, 1 }, { R.id.tv_player_seek_total, primary, 1 },
+                { R.id.tv_player_rating, accent, 0 }, { R.id.tv_scrub_shuffle_value, accent, 1 },
+                { R.id.tv_scrub_repeat_value, accent, 1 }, { R.id.tv_scrub_star_1, accent, 0 },
+                { R.id.tv_scrub_star_2, accent, 0 }, { R.id.tv_scrub_star_3, accent, 0 },
+                { R.id.tv_scrub_star_4, accent, 0 }, { R.id.tv_scrub_star_5, accent, 0 } };
+        for (int[] t : texts) {
+            View v = findViewById(t[0]);
+            if (!(v instanceof TextView)) continue;
+            ((TextView) v).setTextColor(t[1]);
+            ((TextView) v).setTypeface(t[2] == 1 ? bold : regular);
+        }
+        for (int id : new int[] { R.id.iv_scrub_shuffle_icon, R.id.iv_scrub_repeat_icon }) {
+            View v = findViewById(id);
+            if (v instanceof ImageView) ((ImageView) v).setColorFilter(accent);
+        }
+        for (ImageView v : new ImageView[] { ivPlayerShuffleStatus, ivPlayerRepeatStatus })
+            if (v != null) v.setColorFilter(secondary);
+        if (ivStatusPlay != null) ivStatusPlay.setColorFilter(accent);
+        // the bars: a faint track in the text colour and the accent
+        for (int id : new int[] { R.id.player_progress, R.id.player_volume_progress, R.id.seek_player_scrub }) {
+            View v = findViewById(id);
+            if (!(v instanceof ProgressBar)) continue;
+            GradientDrawable track = new GradientDrawable();
+            track.setColor((secondary & 0x00FFFFFF) | 0x40000000);
+            track.setCornerRadius(4 * d);
+            GradientDrawable fill = new GradientDrawable();
+            fill.setColor(accent);
+            fill.setCornerRadius(4 * d);
+            android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(
+                    new android.graphics.drawable.Drawable[] { track,
+                            new android.graphics.drawable.ClipDrawable(fill, Gravity.LEFT, android.graphics.drawable.ClipDrawable.HORIZONTAL) });
+            layers.setId(0, android.R.id.background);
+            layers.setId(1, android.R.id.progress);
+            int progress = ((ProgressBar) v).getProgress();
+            ((ProgressBar) v).setProgressDrawable(layers);
+            ((ProgressBar) v).setProgress(0);
+            ((ProgressBar) v).setProgress(progress);
+        }
+        // the cover's reflection fades into the theme's background instead of white
+        if (frameAlbumReflection instanceof ViewGroup && ((ViewGroup) frameAlbumReflection).getChildCount() > 1)
+            ((ViewGroup) frameAlbumReflection).getChildAt(1).setBackground(new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM, new int[] { bg & 0x00FFFFFF, bg }));
     }
 
     // 🚀 [Accessibility] Saves the switch and rebuilds the screen (like a theme change), coming back to the

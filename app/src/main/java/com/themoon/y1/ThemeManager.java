@@ -56,6 +56,9 @@ public class ThemeManager {
         public int bgOverlay, statusBarBg;
         public int btnNormal, btnFocused, btnFocusedText, buttonRadius;
         public List<MenuElement> menuElements;
+        // 🚀 [Themes] "style": "classic" in config.json: the compact iPod-style metrics everywhere (33 dp rows,
+        // 21 px text, full-width screens under the status bar), with the theme's own colours.
+        public boolean classicStyle;
 
         public ThemeData(String folderPath, String name, String bgImage, android.graphics.Typeface customFont,
                          int textPrimary, int textSecondary, int bgOverlay, int statusBarBg,
@@ -346,6 +349,7 @@ public class ThemeManager {
                                     parsedBtnNormal, parsedBtnFocused, parsedBtnFocusedText,
                                     parsedRadius
                             );
+                            theme.classicStyle = "classic".equalsIgnoreCase(json.optString("style", ""));
                             theme.customFontBold = parsedFontBold;
 
                             if (json.has("main_menu")) {
@@ -523,9 +527,13 @@ public class ThemeManager {
         return cachedBoldFont;
     }
     public static boolean isClassicTheme() {
+        return isIpodTheme() || getCurrentTheme().classicStyle;
+    }
+
+    // The bundled iPod themes themselves (their blue selection bar). The dark theme's config.json names it
+    // "iPod Classic (Dark)"; "iPod Classic Dark" is kept for copies of the theme that use the folder name.
+    public static boolean isIpodTheme() {
         String name = getCurrentTheme().name;
-        // The bundled dark theme's config.json names it "iPod Classic (Dark)"; "iPod Classic Dark" is kept
-        // for copies of the theme that use the folder name.
         return "iPod Classic".equals(name) || "iPod Classic (Dark)".equals(name) || "iPod Classic Dark".equals(name);
     }
     public static boolean isClassicLightTheme() { return "iPod Classic".equals(getCurrentTheme().name); }
