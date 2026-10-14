@@ -832,5 +832,9 @@
   "Upload Music": "Subir música",
   "Upload a Folder": "Subir una carpeta",
   "Uploads": "Subidas",
-  "1 item": "1 elemento"
+  "1 item": "1 elemento",
+  "the server's security certificate isn't recognised by the Y1": "el Y1 no reconoce el certificado de seguridad del servidor",
+  "no connection to the server; is Wi-Fi on?": "no hay conexión con el servidor; ¿está activado el Wi‑Fi?",
+  "the server refused the download": "el servidor ha rechazado la descarga",
+  "the card is full": "la tarjeta está llena"
 }

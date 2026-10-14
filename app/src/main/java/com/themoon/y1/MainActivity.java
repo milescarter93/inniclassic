@@ -19462,7 +19462,7 @@ public class MainActivity extends Activity {
                 public void onFinished(com.themoon.y1.managers.PodcastStore.Job job, boolean ok) {
                     if (!ok && !job.cancelled)
                         Toast.makeText(MainActivity.this, String.format(t("Download stopped: %s"), job.episode.title)
-                                + (job.error != null ? " (" + job.error + ")" : ""), Toast.LENGTH_LONG).show();
+                                + (job.error != null ? " (" + friendlyDownloadError(job.error) + ")" : ""), Toast.LENGTH_LONG).show();
                     if (!onPodcastPages()) return;
                     if (job.episode.audioUrl.equals(podcastPageUrl) && settingsDepth2Back != null)
                         buildEpisodePageUI(job.episode, settingsDepth2Back);
@@ -19481,6 +19481,18 @@ public class MainActivity extends Activity {
 
     private boolean onPodcastPages() {
         return currentScreenState == STATE_SETTINGS && settingsSection == SS_PODCASTS;
+    }
+
+    // A download's error in words (it was the raw exception, e.g. "SSLHandshakeException: ... Trust anchor ...").
+    private String friendlyDownloadError(String error) {
+        if (error.contains("Trust anchor") || error.contains("CertPath") || error.contains("SSLHandshake"))
+            return t("the server's security certificate isn't recognised by the Y1");
+        if (error.contains("UnknownHost") || error.contains("ConnectException") || error.contains("SocketTimeout")
+                || error.contains("timeout"))
+            return t("no connection to the server; is Wi-Fi on?");
+        if (error.contains("HTTP 4") || error.contains("HTTP 5")) return t("the server refused the download") + " - " + error;
+        if (error.contains("ENOSPC") || error.contains("No space")) return t("the card is full");
+        return error;
     }
 
     private void openPodcasts(boolean fromMusic) {
@@ -20148,7 +20160,7 @@ public class MainActivity extends Activity {
                         requestLibraryRescanSoon(); // into Authors / Books
                     } else if (!job.cancelled) {
                         Toast.makeText(MainActivity.this, String.format(t("Download stopped: %s"), job.details.book.title)
-                                + (job.error != null ? " (" + job.error + ")" : ""), Toast.LENGTH_LONG).show();
+                                + (job.error != null ? " (" + friendlyDownloadError(job.error) + ")" : ""), Toast.LENGTH_LONG).show();
                     }
                     if (currentScreenState == STATE_SETTINGS && settingsSection == SS_DISCOVER) {
                         if (job.details.book.id.equals(bookPageId)) buildBookPageUI(job.details.book, settingsDepth2Back);
