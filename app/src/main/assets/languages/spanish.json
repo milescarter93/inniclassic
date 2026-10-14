@@ -836,5 +836,22 @@
   "the server's security certificate isn't recognised by the Y1": "el Y1 no reconoce el certificado de seguridad del servidor",
   "no connection to the server; is Wi-Fi on?": "no hay conexión con el servidor; ¿está activado el Wi‑Fi?",
   "the server refused the download": "el servidor ha rechazado la descarga",
-  "the card is full": "la tarjeta está llena"
+  "the card is full": "la tarjeta está llena",
+  "%d selected": "%d seleccionados",
+  "Delete %d items? This can't be undone.": "¿Borrar %d elementos? No se puede deshacer.",
+  "Last.fm password": "Contraseña de Last.fm",
+  "Last.fm username": "Usuario de Last.fm",
+  "Log In": "Iniciar sesión",
+  "Logged in as %s": "Sesión iniciada como %s",
+  "Logging in...": "Iniciando sesión...",
+  "Not logged in to Last.fm.": "No has iniciado sesión en Last.fm.",
+  "Please fill in both fields.": "Rellena los dos campos.",
+  "Retrying...": "Reintentando...",
+  "Scrobbling is off": "El envío a Last.fm está desactivado",
+  "Scrobbling is on": "El envío a Last.fm está activado",
+  "Send the songs you listen to on the Y1 to your Last.fm profile.": "Envía a tu perfil de Last.fm las canciones que escuchas en el Y1.",
+  "Shortcuts: Backspace goes up a folder · Ctrl/Shift+click selects several · Ctrl+A selects all · Delete deletes the selection · Esc clears it": "Atajos: Retroceso sube una carpeta · Ctrl/Mayús+clic selecciona varios · Ctrl+A selecciona todo · Supr borra la selección · Esc la quita",
+  "The Y1 will add them to its library in a few seconds.": "El Y1 los añadirá a su biblioteca en unos segundos.",
+  "Turn Scrobbling Off": "Desactivar el envío",
+  "Turn Scrobbling On": "Activar el envío"
 }

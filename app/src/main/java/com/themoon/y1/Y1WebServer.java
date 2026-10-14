@@ -12,6 +12,7 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -22,7 +23,7 @@ public class Y1WebServer extends Thread {
     private volatile ServerSocket serverSocket;
     private final java.util.Set<Socket> clients = java.util.Collections.synchronizedSet(new java.util.HashSet<Socket>());
     private final java.util.concurrent.ThreadPoolExecutor workers = new java.util.concurrent.ThreadPoolExecutor(
-            2, 4, 30, TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<Runnable>(8));
+            3, 6, 30, TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<Runnable>(48));
     private volatile boolean running = true;
     private final File rootFolder;
     private final int port;
@@ -141,9 +142,120 @@ public class Y1WebServer extends Thread {
         if (!file.delete()) throw new java.io.IOException("Cannot delete file");
     }
 
+    // 🌐 [Web server] Translated pages kept in memory (per language) and small image thumbnails.
+    private static final java.util.Map<String, byte[]> pageCache = new java.util.HashMap<>();
+    private static final android.util.LruCache<String, byte[]> thumbCache = new android.util.LruCache<String, byte[]>(3 * 1024 * 1024) {
+        @Override
+        protected int sizeOf(String key, byte[] value) {
+            return value.length;
+        }
+    };
+
     private class RequestHandler implements Runnable {
         private Socket socket;
+        private boolean gzipOk;   // the browser accepts gzip
+        private String range;     // "bytes=..." of the request, or null
         public RequestHandler(Socket socket) { this.socket = socket; }
+
+        // A complete response; text over 1 KB goes gzip-compressed when the browser accepts it (the Y1's
+        // Wi-Fi is the bottleneck: the Music folder's listing shrinks about 8 times).
+        private void send(OutputStream os, String status, String type, byte[] body, String extraHeaders) throws java.io.IOException {
+            boolean zip = gzipOk && body.length > 1024;
+            if (zip) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream(body.length / 4);
+                java.util.zip.GZIPOutputStream gz = new java.util.zip.GZIPOutputStream(bos);
+                gz.write(body);
+                gz.close();
+                body = bos.toByteArray();
+            }
+            os.write(("HTTP/1.1 " + status + "\r\nContent-Type: " + type + "\r\nContent-Length: " + body.length
+                    + (zip ? "\r\nContent-Encoding: gzip" : "") + (extraHeaders != null ? "\r\n" + extraHeaders : "")
+                    + "\r\nConnection: close\r\n\r\n").getBytes("UTF-8"));
+            os.write(body);
+        }
+
+        // An HTML page from assets/web, translated once per language and then served from memory.
+        private void sendPage(OutputStream os, String asset) throws java.io.IOException {
+            MainActivity main = MainActivity.instance;
+            String key = asset + "|" + (main != null ? com.themoon.y1.managers.LanguageManager.getInstance(context).currentLangFileName : "");
+            byte[] page;
+            synchronized (pageCache) {
+                page = pageCache.get(key);
+                if (page == null) {
+                    page = LibraryWeb.page(context, asset).getBytes("UTF-8");
+                    pageCache.put(key, page);
+                }
+            }
+            send(os, "200 OK", "text/html; charset=UTF-8", page, "Cache-Control: no-cache");
+        }
+
+        // The file, or the part the browser asked for with Range (lets the browser's player seek).
+        private void sendFile(OutputStream os, File file, String type, String extraHeaders) throws java.io.IOException {
+            long len = file.length(), start = 0, end = len - 1;
+            boolean partial = false;
+            if (range != null && range.startsWith("bytes=") && !range.contains(",")) {
+                try {
+                    String r = range.substring(6).trim();
+                    int dash = r.indexOf('-');
+                    String a = r.substring(0, dash).trim(), b = r.substring(dash + 1).trim();
+                    if (a.isEmpty()) {
+                        start = Math.max(0, len - Long.parseLong(b));
+                    } else {
+                        start = Long.parseLong(a);
+                        if (!b.isEmpty()) end = Math.min(len - 1, Long.parseLong(b));
+                    }
+                    partial = true;
+                } catch (Exception ignored) {
+                    partial = false;
+                }
+            }
+            if (partial && (start >= len || start > end)) {
+                os.write(("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + len + "\r\nConnection: close\r\n\r\n").getBytes("UTF-8"));
+                return;
+            }
+            long count = end - start + 1;
+            os.write(("HTTP/1.1 " + (partial ? "206 Partial Content" : "200 OK") + "\r\nContent-Type: " + type
+                    + "\r\nAccept-Ranges: bytes\r\nContent-Length: " + count
+                    + (partial ? "\r\nContent-Range: bytes " + start + "-" + end + "/" + len : "")
+                    + (extraHeaders != null ? "\r\n" + extraHeaders : "") + "\r\nConnection: close\r\n\r\n").getBytes("UTF-8"));
+            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
+            try {
+                raf.seek(start);
+                byte[] buffer = new byte[16384];
+                while (count > 0) {
+                    int n = raf.read(buffer, 0, (int) Math.min(buffer.length, count));
+                    if (n < 0) break;
+                    os.write(buffer, 0, n);
+                    count -= n;
+                }
+            } finally {
+                raf.close();
+            }
+        }
+
+        private String mimeType(String name) {
+            String n = name.toLowerCase(Locale.US);
+            String ext = n.contains(".") ? n.substring(n.lastIndexOf('.') + 1) : "";
+            switch (ext) {
+                case "mp3": return "audio/mpeg";
+                case "flac": return "audio/flac";
+                case "wav": return "audio/wav";
+                case "ogg": case "opus": return "audio/ogg";
+                case "m4a": case "m4b": case "aac": return "audio/mp4";
+                case "jpg": case "jpeg": return "image/jpeg";
+                case "png": return "image/png";
+                case "gif": return "image/gif";
+                case "webp": return "image/webp";
+                case "bmp": return "image/bmp";
+                case "mp4": case "m4v": return "video/mp4";
+                case "webm": return "video/webm";
+                case "mkv": return "video/x-matroska";
+                case "json": return "application/json; charset=UTF-8";
+                case "txt": case "m3u": case "m3u8": case "eq": case "lrc": case "md": case "ini": case "cfg":
+                case "xml": case "opml": case "log": return "text/plain; charset=UTF-8";
+                default: return "application/octet-stream";
+            }
+        }
 
         private String readHeaderLine(InputStream is) throws java.io.IOException {
             StringBuilder sb = new StringBuilder();
@@ -198,7 +310,7 @@ public class Y1WebServer extends Thread {
         }
 
         private void writeJson(OutputStream os, String json) throws java.io.IOException {
-            os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
+            send(os, "200 OK", "application/json; charset=UTF-8", json.getBytes("UTF-8"), "Cache-Control: no-store");
         }
 
         public void run() {
@@ -223,6 +335,8 @@ public class Y1WebServer extends Thread {
                     if (++headerCount > 100) throw new java.io.IOException("Too many headers");
                     if (line.toLowerCase(Locale.US).startsWith("host:")) host = line.substring(5).trim();
                     if (line.toLowerCase(Locale.US).startsWith("origin:")) origin = line.substring(7).trim();
+                    if (line.toLowerCase(Locale.US).startsWith("accept-encoding:") && line.toLowerCase(Locale.US).contains("gzip")) gzipOk = true;
+                    if (line.toLowerCase(Locale.US).startsWith("range:")) range = line.substring(6).trim();
                     if (line.toLowerCase(Locale.US).startsWith("content-length:")) {
                         contentLength = Integer.parseInt(line.split(":")[1].trim());
                     }
@@ -236,9 +350,7 @@ public class Y1WebServer extends Thread {
                 // 📁 [Web redesign] The file manager page: assets/web/index.html (desktop and phone layouts),
                 // translated like the Library and Podcasts pages.
                 if (method.equals("GET") && (path.equals("/") || path.startsWith("/?"))) {
-                    byte[] page = LibraryWeb.page(context, "web/index.html").getBytes("UTF-8");
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: " + page.length + "\r\n\r\n").getBytes("UTF-8"));
-                    os.write(page);
+                    sendPage(os, "web/index.html");
                 }
                 // the card's space, for the pages' header
                 else if (method.equals("GET") && path.equals("/api/storage")) {
@@ -248,15 +360,11 @@ public class Y1WebServer extends Thread {
                 }
                 // 📚 [Library web] Library & playlists page and its API (see LibraryWeb).
                 else if (method.equals("GET") && (path.equals("/library") || path.startsWith("/library?"))) {
-                    byte[] page = LibraryWeb.page(context).getBytes("UTF-8");
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: " + page.length + "\r\n\r\n").getBytes("UTF-8"));
-                    os.write(page);
+                    sendPage(os, "web/library.html");
                 }
                 // 🎙️ [Podcasts & audiobooks web] explore, subscribe and queue downloads from the computer (see MediaWeb)
                 else if (method.equals("GET") && (path.equals("/media") || path.startsWith("/media?"))) {
-                    byte[] page = LibraryWeb.page(context, "web/media.html").getBytes("UTF-8");
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: " + page.length + "\r\n\r\n").getBytes("UTF-8"));
-                    os.write(page);
+                    sendPage(os, "web/media.html");
                 }
                 else if (method.equals("GET") && path.startsWith("/api/media/chart?")) {
                     int genre = 0;
@@ -403,7 +511,7 @@ public class Y1WebServer extends Thread {
                         }
                     }
                     json.append("]");
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json.toString()).getBytes("UTF-8"));
+                    writeJson(os, json.toString());
                 }
 
                 // 3️⃣ [API] 폴더 생성
@@ -461,40 +569,34 @@ public class Y1WebServer extends Thread {
                 // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
 
                 // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
+                else if (method.equals("GET") && path.startsWith("/api/thumb?")) {
+                    File image = SafeFiles.resolve(rootFolder, query(path, "path"));
+                    int size = 96;
+                    try {
+                        size = Math.max(32, Math.min(400, Integer.parseInt(query(path, "size"))));
+                    } catch (NumberFormatException ignored) {
+                    }
+                    String key = image.getAbsolutePath() + "|" + image.lastModified() + "|" + size;
+                    byte[] jpeg = thumbCache.get(key);
+                    if (jpeg == null && image.isFile()) {
+                        android.graphics.Bitmap bmp = com.themoon.y1.managers.ThumbnailCache.decodeSampled(image.getAbsolutePath(), size);
+                        if (bmp != null) {
+                            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, bos);
+                            bmp.recycle();
+                            jpeg = bos.toByteArray();
+                            thumbCache.put(key, jpeg);
+                        }
+                    }
+                    if (jpeg == null) os.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n".getBytes("UTF-8"));
+                    else send(os, "200 OK", "image/jpeg", jpeg, "Cache-Control: max-age=3600");
+                }
                 else if (method.equals("GET") && path.startsWith("/api/file")) {
-                    String q = path.split("\\?")[1];
-                    String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = SafeFiles.resolve(rootFolder, targetPath);
-
+                    File targetFile = SafeFiles.resolve(rootFolder, query(path, "path"));
                     if (!targetFile.exists() || targetFile.isDirectory()) {
-                        os.write("HTTP/1.1 404 Not Found\r\n\r\nNot Found".getBytes("UTF-8"));
+                        os.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nNot Found".getBytes("UTF-8"));
                     } else {
-                        String mimeType = "application/octet-stream";
-                        String lowerName = targetFile.getName().toLowerCase();
-                        if (lowerName.endsWith(".mp3")) mimeType = "audio/mpeg";
-                        else if (lowerName.endsWith(".flac")) mimeType = "audio/flac";
-                        else if (lowerName.endsWith(".wav")) mimeType = "audio/wav";
-                        else if (lowerName.endsWith(".ogg")) mimeType = "audio/ogg";
-                        else if (lowerName.endsWith(".m4a") || lowerName.endsWith(".aac")) mimeType = "audio/mp4";
-                        else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) mimeType = "image/jpeg";
-                        else if (lowerName.endsWith(".png")) mimeType = "image/png";
-                        else if (lowerName.endsWith(".json")) mimeType = "application/json";
-                            // 🚀 [수정 2] 방금 추가한 파일들도 브라우저가 순수한 '글자'로 인식해서 에디터 창에 띄우도록 명시!
-                        else if (lowerName.endsWith(".txt") || lowerName.endsWith(".m3u") || lowerName.endsWith(".m3u8") || lowerName.endsWith(".eq")) mimeType = "text/plain";
-
-                        String header = "HTTP/1.1 200 OK\r\n" +
-                                "Content-Type: " + mimeType + "\r\n" +
-                                "Content-Length: " + targetFile.length() + "\r\n" +
-                                "Connection: close\r\n\r\n";
-                        os.write(header.getBytes("UTF-8"));
-
-                        try (FileInputStream fis = new FileInputStream(targetFile)) {
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        while ((bytesRead = fis.read(buffer)) != -1) {
-                            os.write(buffer, 0, bytesRead);
-                        }
-                        }
+                        sendFile(os, targetFile, mimeType(targetFile.getName()), "Cache-Control: no-cache");
                     }
                 }
 
@@ -537,78 +639,16 @@ public class Y1WebServer extends Thread {
                         os.write("HTTP/1.1 404 Not Found\r\n\r\nNot Found".getBytes("UTF-8"));
                     } else {
                         // 💡 브라우저가 화면에 재생하지 않고 "무조건 파일로 저장"하게 만드는 Content-Disposition 헤더!
-                        String header = "HTTP/1.1 200 OK\r\n" +
-                                "Content-Type: application/octet-stream\r\n" +
-                                "Content-Disposition: attachment; filename=\"" + targetFile.getName().replaceAll("[\\r\\n\"\\\\]", "_") + "\"\r\n" +
-                                "Content-Length: " + targetFile.length() + "\r\n" +
-                                "Connection: close\r\n\r\n";
-                        os.write(header.getBytes("UTF-8"));
-
-                        try (FileInputStream fis = new FileInputStream(targetFile)) {
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        while ((bytesRead = fis.read(buffer)) != -1) {
-                            os.write(buffer, 0, bytesRead);
-                        }
-                        }
+                        // the name in plain ASCII for old browsers, and exact (UTF-8) for the others
+                        String ascii = targetFile.getName().replaceAll("[^\\x20-\\x7E]", "_").replaceAll("[\"\\\\]", "_");
+                        String utf8 = URLEncoder.encode(targetFile.getName(), "UTF-8").replace("+", "%20");
+                        sendFile(os, targetFile, "application/octet-stream",
+                                "Content-Disposition: attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + utf8);
                     }
                 }
                 // 8️⃣ [Last.fm] 로그인 페이지 (PC 브라우저에서 편하게 아이디/비번 입력용)
                 else if (method.equals("GET") && path.equals("/lastfm")) {
-                    String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
-                            "<title>Y1 Last.fm Settings</title><style>" +
-                            "body{font-family:'Roboto','Segoe UI',sans-serif; background:#1E1E24; color:#E0E0E0; padding:20px; max-width:480px; margin:0 auto;} " +
-                            "a{color:#B39DDB;} " +
-                            "input{width:100%; box-sizing:border-box; font-size:15px; padding:12px; margin:6px 0; border-radius:12px; border:none; background:#2A2A35; color:#E0E0E0; outline:none;} " +
-                            "button{width:100%; font-size:15px; padding:12px; margin:6px 0; border-radius:20px; border:none; background:#B39DDB; color:#121212; font-weight:600; cursor:pointer;} " +
-                            "button:hover{background:#9575CD;} " +
-                            "button.danger{background:#424250; color:#E57373;} " +
-                            ".box{background:#252530; padding:20px; border-radius:16px; margin:15px 0;} " +
-                            "#msg{margin-top:10px; font-weight:600;}" +
-                            "</style></head><body>" +
-                            "<h2>🎧 Last.fm Scrobbling</h2>" +
-                            "<p><a href='/'>&larr; Back to File Manager</a></p>" +
-                            "<div class='box' id='statusBox'>Loading...</div>" +
-                            "<div class='box' id='loginBox' style='display:none;'>" +
-                            "<input id='u' type='text' placeholder='Last.fm username' autocapitalize='off' autocorrect='off'>" +
-                            "<input id='p' type='password' placeholder='Last.fm password'>" +
-                            "<button onclick='doLogin()'>Log In</button>" +
-                            "<div id='msg'></div>" +
-                            "</div>" +
-                            "<script>" +
-                            "function refreshStatus() {" +
-                            "  fetch('/api/lastfm/status').then(r=>r.json()).then(s => {" +
-                            "    let box = document.getElementById('statusBox');" +
-                            "    if (s.loggedIn) {" +
-                            "      box.innerHTML = `<p>Logged in as <b id='lastfmUsername'></b></p>` +" +
-                            "        `<button onclick='setEnabled(${!s.enabled})'>Turn Scrobbling ${s.enabled ? 'OFF' : 'ON'}</button>` +" +
-                            "        `<p>Scrobbling is currently <b>${s.enabled ? 'ON' : 'OFF'}</b></p>` +" +
-                            "        `<button class='danger' onclick='doLogout()'>Log Out</button>`;" +
-                            "      document.getElementById('lastfmUsername').textContent = '@' + s.username;" +
-                            "      document.getElementById('loginBox').style.display = 'none';" +
-                            "    } else {" +
-                            "      box.innerHTML = '<p>Not logged in to Last.fm.</p>';" +
-                            "      document.getElementById('loginBox').style.display = 'block';" +
-                            "    }" +
-                            "  });" +
-                            "}" +
-                            "function doLogin() {" +
-                            "  let u = document.getElementById('u').value.trim();" +
-                            "  let p = document.getElementById('p').value;" +
-                            "  let msg = document.getElementById('msg');" +
-                            "  if (!u || !p) { msg.style.color='#E57373'; msg.innerText='Please fill in both fields.'; return; }" +
-                            "  msg.style.color='#B39DDB'; msg.innerText='Logging in...';" +
-                            "  fetch('/api/lastfm/login', {method:'POST', body:'username='+encodeURIComponent(u)+'&password='+encodeURIComponent(p)})" +
-                            "    .then(r=>r.json()).then(res => {" +
-                            "      if (res.success) { msg.style.color='#81C784'; msg.innerText='✅ Logged in as @' + res.message; refreshStatus(); }" +
-                            "      else { msg.style.color='#E57373'; msg.innerText='❌ ' + res.message; }" +
-                            "    });" +
-                            "}" +
-                            "function doLogout() { fetch('/api/lastfm/logout', {method:'POST'}).then(refreshStatus); }" +
-                            "function setEnabled(v) { fetch('/api/lastfm/enabled?value=' + v, {method:'POST'}).then(refreshStatus); }" +
-                            "refreshStatus();" +
-                            "</script></body></html>";
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
+                    sendPage(os, "web/lastfm.html");
                 }
                 // [API] Last.fm 로그인 상태 조회
                 else if (method.equals("GET") && path.startsWith("/api/lastfm/status")) {

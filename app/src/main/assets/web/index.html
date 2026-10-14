@@ -67,6 +67,14 @@
   tr.row .acts button{opacity:0}
   tr.row:hover .acts button,tr.row .acts button:focus{opacity:1}
   .empty{color:var(--dim);text-align:center;padding:40px 10px}
+  th[data-sort]{cursor:pointer;user-select:none;white-space:nowrap}
+  th[data-sort]:hover{color:var(--text)}
+  th.chk,td.chk{width:1%;padding-right:0}
+  input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;cursor:pointer;margin:0;vertical-align:middle}
+  tr.row.sel td{background:#2A2440}
+  .selbar{display:flex;gap:8px;align-items:center;background:#2A2440;border:1px solid #3D3460;padding:8px 12px;border-radius:12px;margin-bottom:12px}
+  .selbar .grow{flex:1}
+  .kbd{color:var(--dim);font-size:12px;margin-top:18px}
 
   /* drop overlay, uploads, player, dialogs */
   #drop{position:fixed;inset:0;z-index:50;background:rgba(23,23,28,.85);display:none;align-items:center;justify-content:center;pointer-events:none}
@@ -129,6 +137,8 @@
   data-confirmdelete="{{Delete “%s”? This can't be undone.}}"
   data-saved="{{Saved.}}" data-error="{{Something went wrong.}}"
   data-uploadhere="{{Upload}}" data-uploadmusic="{{Upload Music}}"
+  data-selected="{{%d selected}}" data-confirmmany="{{Delete %d items? This can't be undone.}}"
+  data-rescan="{{The Y1 will add them to its library in a few seconds.}}" data-retry="{{Retrying...}}"
   data-play="{{Play}}" data-edit="{{Edit}}" data-download="{{Download}}" data-open="{{Open}}"></div>
 
 <div class="top">
@@ -159,10 +169,15 @@
       <div class="grow"></div>
       <input type="text" id="filter" placeholder="🔍 {{Filter this folder...}}" oninput="render()" style="max-width:260px;width:100%">
     </div>
+    <div class="selbar" id="selbar" style="display:none"><span id="selCount"></span><div class="grow"></div>
+      <button class="desk" onclick="downloadSel()">⬇ {{Download}}</button>
+      <button class="danger" onclick="deleteSel()">🗑 {{Delete}}</button>
+      <button class="ghost" onclick="clearSel()" title="Esc">✕</button></div>
     <table>
-      <thead><tr><th>{{Name}}</th><th class="desk">{{Size}}</th><th class="desk">{{Modified}}</th><th></th></tr></thead>
-      <tbody id="list"><tr><td colspan="4" class="empty">…</td></tr></tbody>
+      <thead><tr><th class="desk chk"><input type="checkbox" id="selAll" title="Ctrl+A"></th><th data-sort="name">{{Name}}</th><th class="desk" data-sort="size">{{Size}}</th><th class="desk" data-sort="modified">{{Modified}}</th><th></th></tr></thead>
+      <tbody id="list"><tr><td colspan="5" class="empty">…</td></tr></tbody>
     </table>
+    <div class="kbd desk">{{Shortcuts: Backspace goes up a folder · Ctrl/Shift+click selects several · Ctrl+A selects all · Delete deletes the selection · Esc clears it}}</div>
   </main>
 </div>
 
@@ -173,7 +188,7 @@
 
 <div id="drop"><div>⬆ <span id="dropText"></span><small>{{Files and whole folders}}</small></div></div>
 <div id="ups"><div class="head"><span id="upsTitle"></span><button class="ghost" onclick="$('ups').style.display='none'">✕</button></div><div id="upsList"></div></div>
-<div id="player"><div class="t" id="playTitle"></div><audio id="audio" controls controlsList="nodownload"></audio><button class="ghost" onclick="stopAudio()">✕</button></div>
+<div id="player"><button class="ghost" onclick="playStep(-1)">⏮</button><div class="t" id="playTitle"></div><button class="ghost" onclick="playStep(1)">⏭</button><audio id="audio" controls controlsList="nodownload"></audio><button class="ghost" onclick="stopAudio()">✕</button></div>
 
 <div class="modal" id="ask"><div class="card"><h3 id="askTitle"></h3><input type="text" id="askInput"><div class="row2"><button onclick="closeModal('ask')">{{Cancel}}</button><button class="primary" id="askOk">OK</button></div></div></div>
 <div class="modal" id="confirm"><div class="card"><h3 id="confirmTitle"></h3><div class="row2"><button onclick="closeModal('confirm')">{{Cancel}}</button><button class="primary" style="background:#E57373" id="confirmOk">{{Delete}}</button></div></div></div>
@@ -217,7 +232,7 @@ function renderCrumbs(){
   parts.forEach(p=>{acc=join(acc,p);const a=acc.replace(/'/g,"\\'");html+=`<span class="sep">›</span><a href="#" onclick="go('${esc(a)}');return false">${esc(p)}</a>`;});
   $('crumbs').innerHTML=html;
 }
-async function go(dir){cwd=dir;location.hash=encodeURIComponent(dir);await load();}
+async function go(dir){cwd=dir;sel.clear();lastClick=-1;location.hash=encodeURIComponent(dir);await load();}
 async function load(){
   try{
     items=(await (await req('/api/list?dir='+encodeURIComponent(cwd))).json()).filter(f=>!f.name.startsWith('.'));
@@ -232,7 +247,7 @@ async function load(){
 }
 function icon(f){
   if(f.isDir)return '📁';const e=ext(f.name);
-  if(IMG.includes(e))return `<img loading="lazy" src="/api/file?path=${encodeURIComponent(join(cwd,f.name))}">`;
+  if(IMG.includes(e))return `<img loading="lazy" src="/api/thumb?size=80&path=${encodeURIComponent(join(cwd,f.name))}">`;
   return AUDIO.includes(e)?'🎵':VID.includes(e)?'🎬':TEXT.includes(e)?'📝':e==='zip'?'🗜️':e==='apk'?'📦':'📄';
 }
 function actions(f){
@@ -246,21 +261,55 @@ function actions(f){
   a.push(['🗑',T.delete,()=>remove(f.name),true]);
   return a;
 }
+// sort order (remembered in this browser) and the selection
+let sortKey='name', sortDir=1, sel=new Set(), shown=[], lastClick=-1;
+try{const o=JSON.parse(localStorage.getItem('y1sort')||'{}');if(o.k)sortKey=o.k;if(o.d)sortDir=o.d;}catch(e){}
+function sortBy(k){if(sortKey===k)sortDir=-sortDir;else{sortKey=k;sortDir=k==='name'?1:-1;}
+  try{localStorage.setItem('y1sort',JSON.stringify({k:sortKey,d:sortDir}));}catch(e){}render();}
+function cmp(a,b){
+  if(a.isDir!==b.isDir)return a.isDir?-1:1;
+  let r=0;
+  if(sortKey==='size')r=(a.isDir?(a.count||0):(a.size||0))-(b.isDir?(b.count||0):(b.size||0));
+  else if(sortKey==='modified')r=(a.modified||0)-(b.modified||0);
+  if(!r)r=a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'});
+  return r*sortDir;
+}
+function updateSel(){
+  $('selbar').style.display=sel.size?'flex':'none';
+  $('selCount').textContent=T.selected.replace('%d',sel.size);
+  $('selAll').checked=shown.length>0&&shown.every(f=>sel.has(f.name));
+  document.querySelectorAll('#list tr.row').forEach(tr=>{const f=items[+tr.dataset.i];const on=sel.has(f.name);
+    tr.classList.toggle('sel',on);const c=tr.querySelector('input');if(c)c.checked=on;});
+}
+function clearSel(){sel.clear();updateSel();}
 function render(){
   const q=$('filter').value.trim().toLowerCase();
-  const shown=items.filter(f=>!q||f.name.toLowerCase().includes(q));
-  if(!shown.length){$('list').innerHTML=`<tr><td colspan="4" class="empty">${esc(q?'—':T.empty)}</td></tr>`;return;}
+  shown=items.filter(f=>!q||f.name.toLowerCase().includes(q)).sort(cmp);
+  document.querySelectorAll('th[data-sort]').forEach(th=>{th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.sort===sortKey?(sortDir>0?' ▲':' ▼'):'');});
+  if(!shown.length){$('list').innerHTML=`<tr><td colspan="5" class="empty">${esc(q?'—':T.empty)}</td></tr>`;updateSel();return;}
   $('list').innerHTML=shown.map((f,i)=>{
     const sub=f.isDir?(f.count===1?T.item1:T.items.replace("%d",f.count||0)):size(f.size);
     const acts=actions(f).filter(a=>a[1]!==T.open||!f.isDir);
-    return `<tr class="row" data-i="${items.indexOf(f)}">
+    return `<tr class="row" data-i="${items.indexOf(f)}" data-pos="${i}">
+      <td class="desk chk"><input type="checkbox" tabindex="-1"></td>
       <td><div class="name"><div class="ico">${icon(f)}</div><div style="min-width:0"><div class="t">${esc(f.name)}</div><div class="sub only-mobile">${esc(sub)}${f.modified?' · '+esc(date(f.modified)):''}</div></div></div></td>
       <td class="meta desk">${esc(sub)}</td><td class="meta desk">${esc(date(f.modified))}</td>
       <td class="acts"><span class="desk">${acts.map((a,k)=>`<button class="ghost ${a[3]?'danger':''}" title="${esc(a[1])}" data-a="${k}">${a[0]}</button>`).join('')}</span>
       <button class="ghost only-mobile" data-menu="1">⋯</button></td></tr>`;}).join('');
+  updateSel();
 }
+document.querySelectorAll('th[data-sort]').forEach(th=>th.onclick=()=>sortBy(th.dataset.sort));
+$('selAll').onclick=e=>{if(e.target.checked)shown.forEach(f=>sel.add(f.name));else sel.clear();updateSel();};
 $('list').addEventListener('click',e=>{
   const tr=e.target.closest('tr.row');if(!tr)return;const f=items[+tr.dataset.i];
+  const pos=+tr.dataset.pos;
+  // selecting: the box, Ctrl/Cmd+click (one) or Shift+click (a range)
+  if(e.target.type==='checkbox'||e.ctrlKey||e.metaKey||(e.shiftKey&&lastClick>=0)){
+    if(e.shiftKey&&lastClick>=0){const [a,b]=[Math.min(lastClick,pos),Math.max(lastClick,pos)];for(let k=a;k<=b;k++)sel.add(shown[k].name);}
+    else if(sel.has(f.name))sel.delete(f.name);else sel.add(f.name);
+    lastClick=pos;updateSel();return;
+  }
+  lastClick=pos;
   const b=e.target.closest('button');
   if(b&&b.dataset.menu){openSheet(f);return;}
   if(b&&b.dataset.a!=null){actions(f).filter(a=>a[1]!==T.open||!f.isDir)[+b.dataset.a][2]();return;}
@@ -278,6 +327,28 @@ function openSheet(f){
   $('sheet').style.display='flex';
 }
 
+function deleteSel(){
+  const names=[...sel];if(!names.length)return;
+  confirmBox(T.confirmmany.replace('%d',names.length),async()=>{
+    for(const n of names){try{await req('/api/delete?path='+encodeURIComponent(join(cwd,n)),{method:'POST'});}catch(e){toast(T.error);}}
+    sel.clear();load();
+  });
+}
+async function downloadSel(){
+  for(const n of [...sel]){const f=items.find(i=>i.name===n);if(!f||f.isDir)continue;
+    const a=document.createElement('a');a.href='/api/download?path='+encodeURIComponent(join(cwd,n));a.download=n;document.body.appendChild(a);a.click();a.remove();
+    await new Promise(r=>setTimeout(r,600));}
+}
+document.addEventListener('keydown',e=>{
+  const typing=/INPUT|TEXTAREA/.test(document.activeElement.tagName)&&document.activeElement.type!=='checkbox';
+  const modal=[...document.querySelectorAll('.modal')].some(m=>m.style.display==='flex');
+  if(e.key==='Escape'){if(modal)document.querySelectorAll('.modal').forEach(m=>m.style.display='none');else clearSel();return;}
+  if(typing||modal)return;
+  if(e.key==='Backspace'&&cwd){e.preventDefault();go(cwd.split('/').slice(0,-1).join('/'));}
+  else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();shown.forEach(f=>sel.add(f.name));updateSel();}
+  else if(e.key==='Delete'&&sel.size){e.preventDefault();deleteSel();}
+});
+
 // ---------- dialogs
 function closeModal(id){$(id).style.display='none';}
 function ask(title,value,ok){$('askTitle').textContent=title;const i=$('askInput');i.value=value||'';$('ask').style.display='flex';i.focus();i.select();
@@ -290,12 +361,21 @@ let editing='';
 async function edit(path,name){editing=path;$('editTitle').textContent='📝 '+name;$('editArea').value='…';$('editor').style.display='flex';
   try{$('editArea').value=await (await req('/api/file?path='+encodeURIComponent(path))).text();}catch(e){toast(T.error);}}
 async function saveEdit(){try{await req('/api/save?path='+encodeURIComponent(editing),{method:'POST',body:$('editArea').value});closeModal('editor');toast(T.saved);load();}catch(e){toast(T.error);}}
-function play(path,name){$('player').style.display='flex';$('playTitle').textContent='▶ '+name;const a=$('audio');a.src='/api/file?path='+encodeURIComponent(path);a.play();}
+let playing=null; // {dir, name}
+function play(path,name){playing={dir:path.split('/').slice(0,-1).join('/'),name:name};
+  $('player').style.display='flex';$('playTitle').textContent='▶ '+name;const a=$('audio');a.src='/api/file?path='+encodeURIComponent(path);a.play();}
+function playStep(d){
+  if(!playing||playing.dir!==cwd)return;
+  const songs=shown.filter(f=>!f.isDir&&AUDIO.includes(ext(f.name)));
+  const k=songs.findIndex(f=>f.name===playing.name)+d;
+  if(k>=0&&k<songs.length)play(join(cwd,songs[k].name),songs[k].name);
+}
+$('audio').addEventListener('ended',()=>playStep(1));
 function stopAudio(){const a=$('audio');a.pause();a.removeAttribute('src');$('player').style.display='none';}
 function pickMusic(){$('pickMusic').click();}
 
 // ---------- uploads (one at a time: the Y1 is small), with progress
-let queue=[], busy=false, doneCount=0;
+let queue=[], busy=false, doneCount=0, toLibrary=false;
 function uploadFiles(list){
   if(!list.length)return;
   list.forEach(u=>{u.id='u'+Math.random().toString(36).slice(2);queue.push(u);
@@ -306,13 +386,18 @@ function uploadFiles(list){
 function updateTitle(){$('upsTitle').textContent=T.uploads+(queue.length?' ('+queue.length+')':' ✓');}
 function next(){
   const u=queue.shift();updateTitle();
-  if(!u){busy=false;toast(T.uploaded.replace('%d',doneCount));doneCount=0;load();return;}
+  if(!u){busy=false;toast(T.uploaded.replace('%d',doneCount)+(toLibrary?' '+T.rescan:''));doneCount=0;toLibrary=false;load();return;}
   busy=true;const el=$(u.id),bar=el.querySelector('.bar div'),st=el.querySelector('.s');
   const x=new XMLHttpRequest();
   x.open('POST','/api/upload?dir='+encodeURIComponent(u.dir)+'&name='+encodeURIComponent(u.file.name));
-  x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round(e.loaded*100/e.total);bar.style.width=p+'%';st.textContent=p+'% · '+size(u.file.size);}};
-  x.onload=()=>{if(x.status===200){el.classList.add('done');bar.style.width='100%';st.textContent='✓ '+T.done;doneCount++;}else{el.classList.add('err');st.textContent=T.failed+' ('+x.status+')';}next();};
-  x.onerror=()=>{el.classList.add('err');st.textContent=T.failed;next();};
+  const t0=Date.now();
+  x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round(e.loaded*100/e.total);bar.style.width=p+'%';
+    const secs=(Date.now()-t0)/1000, speed=secs>0.5?' · '+size(e.loaded/secs)+'/s':'';st.textContent=p+'% · '+size(u.file.size)+speed;}};
+  const retry=()=>{u.tries=(u.tries||0)+1;if(u.tries<=2){st.textContent=T.retry;queue.unshift(u);setTimeout(next,2000);return true;}return false;};
+  x.onload=()=>{if(x.status===200){el.classList.add('done');bar.style.width='100%';st.textContent='✓ '+T.done;doneCount++;
+      if(/^(Music|Audiobooks)(\/|$)/.test(u.dir))toLibrary=true;}
+    else if(!retry()){el.classList.add('err');st.textContent=T.failed+' ('+x.status+')';}else return;next();};
+  x.onerror=()=>{if(retry())return;el.classList.add('err');st.textContent=T.failed;next();};
   x.send(u.file);
 }
 
