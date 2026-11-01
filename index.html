@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InniClassic Store</title>
+<meta name="description" content="Temas y minijuegos para el Innioasis Y1 con el fork de InniClassic.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&display=swap">
+<style>
+  :root{--bg:#17171C;--panel:#212129;--panel2:#2A2A34;--line:#33333F;--text:#E8E8EE;--dim:#9A9AAA;--accent:#B39DDB;--accent2:#9575CD;--ok:#81C784}
+  @media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#F6F5F9;--panel:#FFFFFF;--panel2:#EFEEF4;--line:#E0DEE8;--text:#1D1C22;--dim:#66657A;--accent:#6D4FB3;--accent2:#5A3E9C;--ok:#2E7D32}}
+  :root[data-theme="light"]{--bg:#F6F5F9;--panel:#FFFFFF;--panel2:#EFEEF4;--line:#E0DEE8;--text:#1D1C22;--dim:#66657A;--accent:#6D4FB3;--accent2:#5A3E9C;--ok:#2E7D32}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI','Roboto',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}
+  a{color:var(--accent)}
+  .top{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:16px;padding:0 20px;height:56px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .brand{font-weight:700;font-size:17px;white-space:nowrap}
+  .brand span{color:var(--accent)}
+  .top nav{display:flex;gap:4px;margin-left:auto;overflow-x:auto}
+  .top nav a{padding:7px 12px;border-radius:9px;color:var(--dim);text-decoration:none;font-weight:500;white-space:nowrap}
+  .top nav a:hover{background:var(--panel2);color:var(--text)}
+  main{max-width:1080px;margin:0 auto;padding:0 20px 70px}
+  .hero{padding:44px 0 28px}
+  .hero h1{margin:0 0 8px;font-size:clamp(28px,5vw,40px);line-height:1.15;letter-spacing:-.01em}
+  .hero p{margin:0;color:var(--dim);max-width:640px;font-size:16px}
+  .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;background:var(--panel2);color:var(--dim);margin-bottom:14px}
+  h2{font-size:22px;margin:40px 0 4px}
+  .sub{color:var(--dim);margin:0 0 18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+  .card .body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:8px;flex:1}
+  .card h3{margin:0;font-size:18px}
+  .tags{display:flex;gap:6px;flex-wrap:wrap}
+  .tag{font-size:12px;font-weight:600;padding:1px 8px;border-radius:99px;background:var(--panel2);color:var(--dim)}
+  .tag.warn{color:#C6613F;background:color-mix(in srgb,#C6613F 14%,transparent)}
+  .card p{margin:0;color:var(--dim);font-size:14px}
+  .row{display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:6px}
+  .btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:600;font-size:14px;padding:9px 14px;border-radius:10px;border:none;background:var(--accent);color:#fff;text-decoration:none;cursor:pointer}
+  .btn:hover{background:var(--accent2)}
+  .btn.alt{background:var(--panel2);color:var(--text)}
+  .size{color:var(--dim);font-size:13px}
+  /* a Y1 screen drawn with the theme's colours: menu on the left, clock card on the right */
+  .shot{padding:18px;background:linear-gradient(160deg,#2E2E35,#1E1E23)}
+  .scr{aspect-ratio:4/3;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 5px #000,0 0 0 6px #3A3A42;font-size:clamp(9px,2.1vw,13px)}
+  .scr .bar{display:flex;justify-content:space-between;padding:.25em .6em;font-size:.85em}
+  .scr .main{flex:1;display:flex;gap:.5em;padding:0 .4em .5em}
+  .scr ul{list-style:none;margin:0;padding:0;flex:1;display:flex;flex-direction:column;gap:.12em}
+  .scr li{padding:.12em .45em;border-radius:.45em;display:flex;justify-content:space-between;font-size:1.12em;line-height:1.35}
+  .scr .side{flex:1;border-radius:.8em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3em;margin-top:.3em}
+  .scr .clock{font-size:2.3em;font-weight:700;line-height:1}
+  .scr .line{width:2.2em;height:.18em;border-radius:1em}
+  .scr .art{width:42%;aspect-ratio:1;border-radius:.3em;display:grid;place-items:center;font-size:2em;opacity:.85}
+  .games{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .game{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;text-decoration:none;color:var(--text)}
+  .game:hover{border-color:var(--accent)}
+  .game .em{font-size:26px}
+  .game small{display:block;color:var(--dim);font-size:12px}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+  .steps .card{padding:18px}
+  .steps h3{margin:0 0 8px;font-size:16px}
+  .steps ol{margin:0;padding-left:20px;color:var(--dim)}
+  .steps li{margin:4px 0}
+  .steps b{color:var(--text)}
+  code{font-family:Consolas,'Cascadia Mono',monospace;font-size:.92em;background:var(--panel2);padding:1px 5px;border-radius:5px;color:var(--text)}
+  footer{max-width:1080px;margin:0 auto;padding:24px 20px 50px;color:var(--dim);font-size:13px;border-top:1px solid var(--line)}
+  .err{color:#E57373}
+  @media (max-width:600px){.top{padding:0 14px}.top nav a{padding:7px 8px}main{padding:0 14px 60px}.hero{padding:28px 0 18px}}
+</style>
+</head>
+<body>
+<header class="top"><div class="brand">InniClassic <span>Store</span></div>
+  <nav><a href="#themes" data-t="Themes">Temas</a><a href="#games" data-t="Games">Juegos</a><a href="#install" data-t="How to install">Cómo instalar</a></nav></header>
+<main>
+  <section class="hero">
+    <span class="pill" data-t="Unofficial fan project">Proyecto no oficial de aficionados</span>
+    <h1 data-t="Themes and mini-games for the Innioasis Y1">Temas y minijuegos para el Innioasis Y1</h1>
+    <p data-t="intro">Para el launcher InniClassic (versión fork). Instala temas desde el propio Y1 con Wi‑Fi o descárgalos aquí, y prueba los minijuegos en el navegador.</p>
+  </section>
+
+  <h2 id="themes" data-t="Themes">Temas</h2>
+  <p class="sub" data-t="themes-sub">Vista de ejemplo con los colores y la letra de cada tema.</p>
+  <div class="grid" id="themeGrid"><p class="sub" data-t="Loading...">Cargando...</p></div>
+
+  <h2 id="games" data-t="Games">Juegos</h2>
+  <p class="sub" data-t="games-sub">Los minijuegos de InniClassic, jugables en el navegador con un Y1 simulado. Los de música necesitan tu Y1: ábrelos desde su servidor web.</p>
+  <div class="games" id="gameGrid"></div>
+
+  <h2 id="install" data-t="How to install">Cómo instalar un tema</h2>
+  <p class="sub" data-t="install-sub">Necesitas InniClassic fork 1.4.5-fork62 o posterior.</p>
+  <div class="steps">
+    <div class="card"><h3 data-t="From the Y1 (Wi-Fi)">Desde el Y1 (Wi‑Fi)</h3><ol id="stepsY1"></ol></div>
+    <div class="card"><h3 data-t="From the computer">Desde el ordenador</h3><ol id="stepsPC"></ol></div>
+  </div>
+</main>
+<footer id="foot"></footer>
+<script>
+'use strict';
+const ES = /^es\b/i.test(navigator.language || 'es');
+const EN = {
+  'Themes': 'Themes', 'Games': 'Games', 'How to install': 'How to install', 'Unofficial fan project': 'Unofficial fan project',
+  'Themes and mini-games for the Innioasis Y1': 'Themes and mini-games for the Innioasis Y1',
+  'intro': 'For the InniClassic launcher (fork version). Install themes from the Y1 itself over Wi-Fi or download them here, and try the mini-games in your browser.',
+  'themes-sub': 'Sample view drawn with each theme\'s colours and type.',
+  'games-sub': 'InniClassic\'s mini-games, playable in the browser on a simulated Y1. The music ones need your Y1: open them from its web server.',
+  'How to install a theme': 'How to install a theme', 'install-sub': 'You need InniClassic fork 1.4.5-fork62 or later.',
+  'From the Y1 (Wi-Fi)': 'From the Y1 (Wi-Fi)', 'From the computer': 'From the computer', 'Loading...': 'Loading...',
+  'Download .zip': 'Download .zip', 'Unofficial': 'Unofficial', 'Play': 'Play', 'Needs your Y1': 'Needs your Y1', 'Also on the Y1': 'Also on the Y1',
+  'Version': 'Version', 'catalog-error': 'Couldn\'t load the catalog. Reload the page.'
+};
+const t = k => ES ? null : EN[k];
+const tr = (es, en) => ES ? es : en;
+document.documentElement.lang = ES ? 'es' : 'en';
+if (!ES) document.querySelectorAll('[data-t]').forEach(el => { const v = EN[el.dataset.t] || EN[el.textContent]; if (v) el.textContent = v; });
+if (!ES) { const h = document.querySelector('#install'); h.textContent = EN['How to install a theme']; }
+
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const loc = o => o == null ? '' : typeof o === 'string' ? o : (ES ? o.es : o.en) || o.en || o.es || '';
+const kb = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+
+function screen(c, name) { // a Y1 main menu in the theme's colours (no album art: just a note)
+  const scr = el('div', 'scr'); scr.style.background = c.bg; scr.style.color = c.text;
+  scr.style.fontFamily = c.font === 'serif' ? "'Noto Serif','Droid Serif',Georgia,serif" : "'Segoe UI',Roboto,system-ui,sans-serif";
+  const bar = el('div', 'bar'); bar.style.background = c.bar; bar.append(el('span', null, 'iPod'), el('span', null, '57 %'));
+  const main = el('div', 'main'), ul = el('ul');
+  const items = ES ? ['Reproduciendo', 'Música', 'Vídeos', 'Podcasts', 'Radio FM', 'Bluetooth', 'Extras', 'Ajustes']
+                   : ['Now Playing', 'Music', 'Videos', 'Podcasts', 'FM Radio', 'Bluetooth', 'Extras', 'Settings'];
+  items.forEach((s, i) => { const li = el('li'); li.append(el('span', null, s)); if (i === 0) { li.style.background = c.accent; li.style.color = '#fff'; li.append(el('span', null, '›')); } ul.append(li); });
+  const side = el('div', 'side'); side.style.background = `color-mix(in srgb, ${c.text} 7%, transparent)`;
+  const now = new Date(), clock = el('div', 'clock', now.toLocaleTimeString(ES ? 'es-ES' : 'en-GB', { hour: '2-digit', minute: '2-digit' }));
+  const line = el('div', 'line'); line.style.background = c.accent;
+  const art = el('div', 'art', '♪'); art.style.background = `color-mix(in srgb, ${c.accent} 22%, transparent)`; art.style.color = c.accent;
+  side.append(clock, line, art);
+  main.append(ul, side); scr.append(bar, main);
+  return scr;
+}
+
+function themeCard(th) {
+  const card = el('article', 'card');
+  const shot = el('div', 'shot'); shot.append(screen(th.colors || { bg: '#222', bar: '#111', text: '#eee', text2: '#999', accent: '#69c' }, th.name)); card.append(shot);
+  const body = el('div', 'body');
+  body.append(el('h3', null, th.title || th.name));
+  const tags = el('div', 'tags');
+  if (th.variant) tags.append(el('span', 'tag', loc(th.variant)));
+  if (th.unofficial) tags.append(el('span', 'tag warn', tr('No oficial', 'Unofficial')));
+  tags.append(el('span', 'tag', tr('Versión ', 'Version ') + th.version));
+  body.append(tags, el('p', null, loc(th.description)));
+  if (th.author) { const a = el('p', null, th.author); a.style.fontSize = '12.5px'; body.append(a); }
+  const row = el('div', 'row'), dl = el('a', 'btn', '⬇ ' + tr('Descargar .zip', 'Download .zip'));
+  dl.href = th.file; dl.download = th.name + '.zip';
+  row.append(dl, el('span', 'size', kb(th.size) + ' · ' + tr('en el Y1: «', 'on the Y1: "') + th.name + tr('»', '"')));
+  body.append(row); card.append(body);
+  return card;
+}
+
+function gameLink(g) {
+  const a = el('a', 'game'); a.href = 'games/#' + g.id;
+  const name = el('span', null, loc(g.name));
+  name.append(el('small', null, g.music ? tr('Necesita tu Y1', 'Needs your Y1') : tr('Jugar en el navegador', 'Play in the browser')));
+  a.append(el('span', 'em', g.emoji || '🎮'), name);
+  return a;
+}
+
+function fill(id, items) { const ol = document.getElementById(id); items.forEach(h => { const li = el('li'); li.innerHTML = h; ol.append(li); }); }
+fill('stepsY1', ES ? [
+  'Enciende el <b>Wi‑Fi</b> del Y1.',
+  'Ve a <b>Ajustes → Pantalla → Tema</b> y baja hasta <b>Descargar más temas</b>.',
+  'Elige un tema y pulsa el <b>botón central</b>: se descarga y se abre su vista previa.',
+  'Pulsa otra vez el <b>botón central</b> para aplicarlo.'
+] : [
+  'Turn on the Y1\'s <b>Wi-Fi</b>.',
+  'Go to <b>Settings → Display → Theme</b> and scroll down to <b>Get More Themes</b>.',
+  'Pick a theme and press <b>Center</b>: it downloads and its preview opens.',
+  'Press <b>Center</b> again to apply it.'
+]);
+fill('stepsPC', ES ? [
+  'Descarga el <code>.zip</code> del tema desde esta página.',
+  'Cópialo, sin descomprimir, en la carpeta <code>Y1_Themes</code> de la tarjeta (por USB o con el <b>Servidor Web</b> del Y1).',
+  'En el Y1, abre <b>Ajustes → Pantalla → Tema</b>: el tema aparece en la lista.'
+] : [
+  'Download the theme\'s <code>.zip</code> from this page.',
+  'Copy it, without unzipping, into the <code>Y1_Themes</code> folder on the card (over USB or with the Y1\'s <b>Web Server</b>).',
+  'On the Y1, open <b>Settings → Display → Theme</b>: the theme is in the list.'
+]);
+document.getElementById('foot').innerHTML = ES
+  ? 'Proyecto no oficial de aficionados. InniClassic es un launcher de la comunidad para el Innioasis Y1; este es un fork. «Claudoasis» es un tema no oficial inspirado en Claude, sin relación con Anthropic. Código: <a href="https://github.com/milescarter93/inniclassic">github.com/milescarter93/inniclassic</a>'
+  : 'Unofficial fan project. InniClassic is a community launcher for the Innioasis Y1; this is a fork. "Claudoasis" is an unofficial theme inspired by Claude, not affiliated with Anthropic. Code: <a href="https://github.com/milescarter93/inniclassic">github.com/milescarter93/inniclassic</a>';
+
+fetch('catalog.json', { cache: 'no-cache' }).then(r => r.json()).then(cat => {
+  const grid = document.getElementById('themeGrid'); grid.innerHTML = '';
+  (cat.themes || []).forEach(th => grid.append(themeCard(th)));
+  const gg = document.getElementById('gameGrid'); (cat.games || []).forEach(g => gg.append(gameLink(g)));
+}).catch(() => {
+  const grid = document.getElementById('themeGrid'); grid.innerHTML = '';
+  grid.append(el('p', 'err', tr('No se pudo cargar el catálogo. Recarga la página.', EN['catalog-error'])));
+});
+</script>
+</body>
+</html>

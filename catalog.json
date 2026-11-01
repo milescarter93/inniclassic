@@ -1,0 +1,130 @@
+{
+  "store": 1,
+  "name": "InniClassic Store",
+  "updated": "2026-11-02",
+  "themes": [
+    {
+      "id": "claudoasis",
+      "name": "Claudoasis",
+      "title": "Claudoasis Theme for Y1",
+      "variant": {
+        "es": "Claro",
+        "en": "Light"
+      },
+      "version": 1,
+      "minApp": 206,
+      "author": "Unofficial theme inspired by Claude - not affiliated with Anthropic",
+      "unofficial": true,
+      "description": {
+        "es": "Tema no oficial inspirado en la interfaz de Claude: fondo crema, acento terracota y letra Droid Serif. Filas compactas como el iPod.",
+        "en": "Unofficial theme inspired by Claude's interface: cream background, terracotta accent and Droid Serif type. Compact iPod-style rows."
+      },
+      "colors": {
+        "bg": "#F4F3EE",
+        "bar": "#E9E6DC",
+        "text": "#1F1E1D",
+        "text2": "#73716B",
+        "accent": "#C6613F",
+        "font": "serif"
+      },
+      "file": "themes/claudoasis.zip",
+      "size": 210425,
+      "sha256": "3a6597d94ea69b2a7d4239944d595b5d12264180eae2303d736191e324ab5ad8"
+    },
+    {
+      "id": "claudoasis-dark",
+      "name": "Claudoasis (Dark)",
+      "title": "Claudoasis Theme for Y1",
+      "variant": {
+        "es": "Oscuro",
+        "en": "Dark"
+      },
+      "version": 1,
+      "minApp": 206,
+      "author": "Unofficial theme inspired by Claude - not affiliated with Anthropic",
+      "unofficial": true,
+      "description": {
+        "es": "La versión oscura: fondo carbón, texto crema y el mismo acento terracota.",
+        "en": "The dark version: charcoal background, cream text and the same terracotta accent."
+      },
+      "colors": {
+        "bg": "#262624",
+        "bar": "#1F1E1D",
+        "text": "#F4F3EE",
+        "text2": "#A6A39A",
+        "accent": "#C6613F",
+        "font": "serif"
+      },
+      "file": "themes/claudoasis-dark.zip",
+      "size": 210434,
+      "sha256": "5fd3c083dec7e37098d9c113a788c2979e99c23f4581d87e1cc10d2a7eca8ee0"
+    }
+  ],
+  "games": [
+    {
+      "id": "quiz",
+      "name": {
+        "es": "Quiz musical",
+        "en": "Music Quiz"
+      },
+      "emoji": "🎵",
+      "music": true,
+      "inApp": true
+    },
+    {
+      "id": "bricks",
+      "name": {
+        "es": "Ladrillos",
+        "en": "Bricks"
+      },
+      "emoji": "🧱",
+      "inApp": true
+    },
+    {
+      "id": "snake",
+      "name": {
+        "es": "Serpiente",
+        "en": "Snake"
+      },
+      "emoji": "🐍",
+      "inApp": true
+    },
+    {
+      "id": "simon",
+      "name": {
+        "es": "Simón",
+        "en": "Simon"
+      },
+      "emoji": "🔴",
+      "inApp": true
+    },
+    {
+      "id": "blocks",
+      "name": {
+        "es": "Bloques",
+        "en": "Blocks"
+      },
+      "emoji": "🟦",
+      "inApp": true
+    },
+    {
+      "id": "flappy",
+      "name": {
+        "es": "Flappy",
+        "en": "Flappy"
+      },
+      "emoji": "🐤",
+      "inApp": true
+    },
+    {
+      "id": "older",
+      "name": {
+        "es": "¿Cuál salió antes?",
+        "en": "Which Came First?"
+      },
+      "emoji": "📅",
+      "music": true,
+      "inApp": true
+    }
+  ]
+}
