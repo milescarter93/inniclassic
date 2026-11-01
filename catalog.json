@@ -1,6 +1,6 @@
 {
   "store": 1,
-  "name": "InniClassic Store",
+  "name": "New Oasis",
   "updated": "2026-11-02",
   "themes": [
     {
@@ -11,9 +11,9 @@
         "es": "Claro",
         "en": "Light"
       },
-      "version": 1,
+      "version": 2,
       "minApp": 206,
-      "author": "Unofficial theme inspired by Claude - not affiliated with Anthropic",
+      "author": "Unofficial theme inspired by Claude - not affiliated with Anthropic. Font: Droid Serif (Apache 2.0)",
       "unofficial": true,
       "description": {
         "es": "Tema no oficial inspirado en la interfaz de Claude: fondo crema, acento terracota y letra Droid Serif. Filas compactas como el iPod.",
@@ -28,8 +28,8 @@
         "font": "serif"
       },
       "file": "themes/claudoasis.zip",
-      "size": 210425,
-      "sha256": "3a6597d94ea69b2a7d4239944d595b5d12264180eae2303d736191e324ab5ad8"
+      "size": 214946,
+      "sha256": "1893394773f89e972374be8e7e1ae6d17f905548d326bc72297569f3e9480d5b"
     },
     {
       "id": "claudoasis-dark",
@@ -39,9 +39,9 @@
         "es": "Oscuro",
         "en": "Dark"
       },
-      "version": 1,
+      "version": 2,
       "minApp": 206,
-      "author": "Unofficial theme inspired by Claude - not affiliated with Anthropic",
+      "author": "Unofficial theme inspired by Claude - not affiliated with Anthropic. Font: Droid Serif (Apache 2.0)",
       "unofficial": true,
       "description": {
         "es": "La versión oscura: fondo carbón, texto crema y el mismo acento terracota.",
@@ -56,8 +56,8 @@
         "font": "serif"
       },
       "file": "themes/claudoasis-dark.zip",
-      "size": 210434,
-      "sha256": "5fd3c083dec7e37098d9c113a788c2979e99c23f4581d87e1cc10d2a7eca8ee0"
+      "size": 214955,
+      "sha256": "6df9520f359e5d8cc8e7117c46aa300ce106a0d4343a2410eab88ca42c63f768"
     }
   ],
   "games": [

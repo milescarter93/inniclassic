@@ -1,6 +1,6 @@
-# InniClassic Store
+# New Oasis - themes and games
 
-The theme and mini-game store of the InniClassic fork for the Innioasis Y1, published with GitHub Pages
+The theme and mini-game store of New Oasis (a fork of InniClassic) for the Innioasis Y1, published with GitHub Pages
 from this `gh-pages` branch: https://milescarter93.github.io/inniclassic/
 
 - `index.html` – the store page (Spanish / English).
@@ -17,4 +17,4 @@ from this `gh-pages` branch: https://milescarter93.github.io/inniclassic/
 2. Run `python tools/update_catalog.py` to fill in each theme's `size` and `sha256` (the Y1 checks both).
 3. Commit and push this branch.
 
-Unofficial fan project. "Claudoasis" is an unofficial theme inspired by Claude, not affiliated with Anthropic.
+Free, non-commercial fan project (same license as the original project). Not affiliated with Innioasis, Apple or Anthropic. "Claudoasis" is an unofficial theme inspired by Claude, not affiliated with Anthropic.

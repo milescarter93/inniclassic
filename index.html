@@ -3,29 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>InniClassic Store</title>
-<meta name="description" content="Temas y minijuegos para el Innioasis Y1 con el fork de InniClassic.">
+<title>New Oasis · Temas y juegos para el Y1</title>
+<meta name="description" content="New Oasis: un launcher de aficionados, gratuito, para el Innioasis Y1. Temas, minijuegos y guía de instalación.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&display=swap">
 <style>
-  :root{--bg:#17171C;--panel:#212129;--panel2:#2A2A34;--line:#33333F;--text:#E8E8EE;--dim:#9A9AAA;--accent:#B39DDB;--accent2:#9575CD;--ok:#81C784}
-  @media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#F6F5F9;--panel:#FFFFFF;--panel2:#EFEEF4;--line:#E0DEE8;--text:#1D1C22;--dim:#66657A;--accent:#6D4FB3;--accent2:#5A3E9C;--ok:#2E7D32}}
-  :root[data-theme="light"]{--bg:#F6F5F9;--panel:#FFFFFF;--panel2:#EFEEF4;--line:#E0DEE8;--text:#1D1C22;--dim:#66657A;--accent:#6D4FB3;--accent2:#5A3E9C;--ok:#2E7D32}
+  :root{--bg:#17171C;--panel:#212129;--panel2:#2A2A34;--line:#33333F;--text:#E8E8EE;--dim:#9A9AAA;--accent:#5FC4B4;--accent2:#45A99A;--on-accent:#0E1F1C;--ok:#81C784;--warn:#E0B060}
+  @media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#F5F7F6;--panel:#FFFFFF;--panel2:#ECF1EF;--line:#DCE3E0;--text:#1A1F1D;--dim:#5F6B67;--accent:#1F8A7A;--accent2:#176E61;--on-accent:#FFFFFF;--ok:#2E7D32;--warn:#9A6A00}}
+  :root[data-theme="light"]{--bg:#F5F7F6;--panel:#FFFFFF;--panel2:#ECF1EF;--line:#DCE3E0;--text:#1A1F1D;--dim:#5F6B67;--accent:#1F8A7A;--accent2:#176E61;--on-accent:#FFFFFF;--ok:#2E7D32;--warn:#9A6A00}
   *{box-sizing:border-box}
-  body{margin:0;font-family:'Segoe UI','Roboto',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}
+  body{margin:0;font-family:'Segoe UI','Roboto',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.55}
   a{color:var(--accent)}
   .top{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:16px;padding:0 20px;height:56px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-  .brand{font-weight:700;font-size:17px;white-space:nowrap}
-  .brand span{color:var(--accent)}
-  .top nav{display:flex;gap:4px;margin-left:auto;overflow-x:auto}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:17px;white-space:nowrap;color:var(--text);text-decoration:none}
+  .brand svg{width:26px;height:26px}
+  .top nav{display:flex;gap:4px;margin-left:auto;overflow-x:auto;scrollbar-width:none}
+  .top nav::-webkit-scrollbar{display:none}
   .top nav a{padding:7px 12px;border-radius:9px;color:var(--dim);text-decoration:none;font-weight:500;white-space:nowrap}
   .top nav a:hover{background:var(--panel2);color:var(--text)}
   main{max-width:1080px;margin:0 auto;padding:0 20px 70px}
-  .hero{padding:44px 0 28px}
-  .hero h1{margin:0 0 8px;font-size:clamp(28px,5vw,40px);line-height:1.15;letter-spacing:-.01em}
-  .hero p{margin:0;color:var(--dim);max-width:640px;font-size:16px}
-  .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;background:var(--panel2);color:var(--dim);margin-bottom:14px}
-  h2{font-size:22px;margin:40px 0 4px}
+  .hero{padding:44px 0 26px}
+  .hero h1{margin:0 0 10px;font-size:clamp(28px,5vw,42px);line-height:1.12;letter-spacing:-.01em}
+  .hero p{margin:0;color:var(--dim);max-width:660px;font-size:16px}
+  .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:var(--panel2);color:var(--dim);margin-bottom:14px}
+  h2{font-size:22px;margin:42px 0 4px;scroll-margin-top:70px}
   .sub{color:var(--dim);margin:0 0 18px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
@@ -33,14 +34,14 @@
   .card h3{margin:0;font-size:18px}
   .tags{display:flex;gap:6px;flex-wrap:wrap}
   .tag{font-size:12px;font-weight:600;padding:1px 8px;border-radius:99px;background:var(--panel2);color:var(--dim)}
-  .tag.warn{color:#C6613F;background:color-mix(in srgb,#C6613F 14%,transparent)}
+  .tag.warn{color:var(--warn);background:color-mix(in srgb,var(--warn) 15%,transparent)}
   .card p{margin:0;color:var(--dim);font-size:14px}
-  .row{display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:6px}
-  .btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:600;font-size:14px;padding:9px 14px;border-radius:10px;border:none;background:var(--accent);color:#fff;text-decoration:none;cursor:pointer}
+  .row{display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:6px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:600;font-size:14px;padding:9px 14px;border-radius:10px;border:none;background:var(--accent);color:var(--on-accent);text-decoration:none;cursor:pointer}
   .btn:hover{background:var(--accent2)}
-  .btn.alt{background:var(--panel2);color:var(--text)}
+  .btn.off{background:var(--panel2);color:var(--dim);cursor:default}
   .size{color:var(--dim);font-size:13px}
-  /* a Y1 screen drawn with the theme's colours: menu on the left, clock card on the right */
+  /* a Y1 screen drawn with the theme's colours (no album art: just a note) */
   .shot{padding:18px;background:linear-gradient(160deg,#2E2E35,#1E1E23)}
   .scr{aspect-ratio:4/3;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 5px #000,0 0 0 6px #3A3A42;font-size:clamp(9px,2.1vw,13px)}
   .scr .bar{display:flex;justify-content:space-between;padding:.25em .6em;font-size:.85em}
@@ -56,99 +57,148 @@
   .game:hover{border-color:var(--accent)}
   .game .em{font-size:26px}
   .game small{display:block;color:var(--dim);font-size:12px}
-  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px}
   .steps .card{padding:18px}
   .steps h3{margin:0 0 8px;font-size:16px}
-  .steps ol{margin:0;padding-left:20px;color:var(--dim)}
-  .steps li{margin:4px 0}
+  .steps ol,.steps ul{margin:0;padding-left:20px;color:var(--dim)}
+  .steps li{margin:5px 0}
   .steps b{color:var(--text)}
+  .note{font-size:13.5px;color:var(--dim);margin:10px 0 0}
   code{font-family:Consolas,'Cascadia Mono',monospace;font-size:.92em;background:var(--panel2);padding:1px 5px;border-radius:5px;color:var(--text)}
-  footer{max-width:1080px;margin:0 auto;padding:24px 20px 50px;color:var(--dim);font-size:13px;border-top:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.04em}
+  .st-ok{color:var(--ok);font-weight:600}.st-wait{color:var(--warn);font-weight:600}
+  .tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:6px 8px;overflow-x:auto}
+  footer{max-width:1080px;margin:0 auto;padding:26px 20px 50px;color:var(--dim);font-size:13px;border-top:1px solid var(--line);display:grid;gap:10px}
+  footer p{margin:0}
   .err{color:#E57373}
-  @media (max-width:600px){.top{padding:0 14px}.top nav a{padding:7px 8px}main{padding:0 14px 60px}.hero{padding:28px 0 18px}}
+  @media (max-width:600px){.top{padding:0 14px;gap:10px}.top nav a{padding:7px 8px}main{padding:0 14px 60px}.hero{padding:28px 0 16px}}
 </style>
 </head>
 <body>
-<header class="top"><div class="brand">InniClassic <span>Store</span></div>
-  <nav><a href="#themes" data-t="Themes">Temas</a><a href="#games" data-t="Games">Juegos</a><a href="#install" data-t="How to install">Cómo instalar</a></nav></header>
+<header class="top">
+  <a class="brand" href="#">
+    <!-- New Oasis mark: a wheel (the Y1's) cradling a drop/leaf - drawn for this project -->
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".35"/><circle cx="16" cy="16" r="5" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".35"/><path d="M16 4.5c4.6 4.4 6.6 7.9 6.6 10.6a6.6 6.6 0 0 1-13.2 0c0-2.7 2-6.2 6.6-10.6z" fill="var(--accent)"/></svg>
+    New Oasis</a>
+  <nav><a href="#themes" data-i="nav.themes"></a><a href="#games" data-i="nav.games"></a><a href="#install" data-i="nav.install"></a><a href="https://github.com/milescarter93/inniclassic">GitHub</a></nav>
+</header>
 <main>
   <section class="hero">
-    <span class="pill" data-t="Unofficial fan project">Proyecto no oficial de aficionados</span>
-    <h1 data-t="Themes and mini-games for the Innioasis Y1">Temas y minijuegos para el Innioasis Y1</h1>
-    <p data-t="intro">Para el launcher InniClassic (versión fork). Instala temas desde el propio Y1 con Wi‑Fi o descárgalos aquí, y prueba los minijuegos en el navegador.</p>
+    <span class="pill" data-i="hero.pill"></span>
+    <h1 data-i="hero.title"></h1>
+    <p data-i="hero.text"></p>
   </section>
 
-  <h2 id="themes" data-t="Themes">Temas</h2>
-  <p class="sub" data-t="themes-sub">Vista de ejemplo con los colores y la letra de cada tema.</p>
-  <div class="grid" id="themeGrid"><p class="sub" data-t="Loading...">Cargando...</p></div>
+  <h2 id="themes" data-i="themes.title"></h2>
+  <p class="sub" data-i="themes.sub"></p>
+  <div class="grid" id="themeGrid"><p class="sub" data-i="loading"></p></div>
 
-  <h2 id="games" data-t="Games">Juegos</h2>
-  <p class="sub" data-t="games-sub">Los minijuegos de InniClassic, jugables en el navegador con un Y1 simulado. Los de música necesitan tu Y1: ábrelos desde su servidor web.</p>
+  <h2 id="games" data-i="games.title"></h2>
+  <p class="sub" data-i="games.sub"></p>
   <div class="games" id="gameGrid"></div>
 
-  <h2 id="install" data-t="How to install">Cómo instalar un tema</h2>
-  <p class="sub" data-t="install-sub">Necesitas InniClassic fork 1.4.5-fork62 o posterior.</p>
+  <h2 id="install" data-i="install.title"></h2>
+  <p class="sub" data-i="install.sub"></p>
   <div class="steps">
-    <div class="card"><h3 data-t="From the Y1 (Wi-Fi)">Desde el Y1 (Wi‑Fi)</h3><ol id="stepsY1"></ol></div>
-    <div class="card"><h3 data-t="From the computer">Desde el ordenador</h3><ol id="stepsPC"></ol></div>
+    <div class="card"><h3 data-i="install.fork"></h3><ol id="stepsFork"></ol><p class="note" data-i-html="install.forkNote"></p></div>
+    <div class="card"><h3 data-i="install.official"></h3><ul id="stepsOfficial"></ul></div>
+  </div>
+
+  <h3 style="margin:26px 0 10px" data-i="compat.title"></h3>
+  <div class="tablewrap"><table><thead><tr><th data-i="compat.fw"></th><th data-i="compat.state"></th></tr></thead><tbody id="compat"></tbody></table></div>
+  <p class="note" data-i-html="compat.note"></p>
+
+  <h2 id="themes-install" data-i="tinstall.title"></h2>
+  <div class="steps">
+    <div class="card"><h3 data-i="tinstall.y1"></h3><ol id="stepsY1"></ol></div>
+    <div class="card"><h3 data-i="tinstall.pc"></h3><ol id="stepsPC"></ol></div>
   </div>
 </main>
-<footer id="foot"></footer>
+<footer>
+  <p data-i-html="foot.what"></p>
+  <p data-i-html="foot.credits"></p>
+  <p data-i-html="foot.license"></p>
+  <p data-i-html="foot.marks"></p>
+</footer>
 <script>
 'use strict';
 const ES = /^es\b/i.test(navigator.language || 'es');
-const EN = {
-  'Themes': 'Themes', 'Games': 'Games', 'How to install': 'How to install', 'Unofficial fan project': 'Unofficial fan project',
-  'Themes and mini-games for the Innioasis Y1': 'Themes and mini-games for the Innioasis Y1',
-  'intro': 'For the InniClassic launcher (fork version). Install themes from the Y1 itself over Wi-Fi or download them here, and try the mini-games in your browser.',
-  'themes-sub': 'Sample view drawn with each theme\'s colours and type.',
-  'games-sub': 'InniClassic\'s mini-games, playable in the browser on a simulated Y1. The music ones need your Y1: open them from its web server.',
-  'How to install a theme': 'How to install a theme', 'install-sub': 'You need InniClassic fork 1.4.5-fork62 or later.',
-  'From the Y1 (Wi-Fi)': 'From the Y1 (Wi-Fi)', 'From the computer': 'From the computer', 'Loading...': 'Loading...',
-  'Download .zip': 'Download .zip', 'Unofficial': 'Unofficial', 'Play': 'Play', 'Needs your Y1': 'Needs your Y1', 'Also on the Y1': 'Also on the Y1',
-  'Version': 'Version', 'catalog-error': 'Couldn\'t load the catalog. Reload the page.'
+const SUPPORT = 'https://www.innioasis.com/pages/support-center';
+const REPO = 'https://github.com/milescarter93/inniclassic';
+const I = {
+  'nav.themes': ['Temas', 'Themes'], 'nav.games': ['Juegos', 'Games'], 'nav.install': ['Instalar', 'Install'],
+  'hero.pill': ['Proyecto de aficionados · gratuito · sin ánimo de lucro', 'Fan project · free · non-commercial'],
+  'hero.title': ['Tu Y1, a tu manera', 'Your Y1, your way'],
+  'hero.text': ['New Oasis es un launcher para el Innioasis Y1 hecho por y para quien lo usa a diario: música sin distracciones, temas que puedes instalar desde el propio Y1 y minijuegos pensados para la rueda. Parte de InniClassic y lo lleva por su propio camino.',
+                'New Oasis is a launcher for the Innioasis Y1, made by and for people who use it every day: music without distractions, themes you can install from the Y1 itself and mini-games built for the wheel. It starts from InniClassic and takes it its own way.'],
+  'loading': ['Cargando...', 'Loading...'],
+  'themes.title': ['Temas', 'Themes'],
+  'themes.sub': ['Vista de ejemplo con los colores y la letra de cada tema.', 'Sample view drawn with each theme\'s colours and type.'],
+  'games.title': ['Juegos', 'Games'],
+  'games.sub': ['Los minijuegos de New Oasis, jugables aquí con un Y1 simulado. Los de música usan tus canciones: ábrelos desde el servidor web de tu Y1.',
+                'New Oasis\'s mini-games, playable here on a simulated Y1. The music ones use your songs: open them from your Y1\'s web server.'],
+  'install.title': ['Instalar New Oasis', 'Installing New Oasis'],
+  'install.sub': ['La primera versión pública está en preparación. Así será la instalación:', 'The first public release is being prepared. This is how installing it will work:'],
+  'install.fork': ['New Oasis (APK)', 'New Oasis (APK)'],
+  'install.official': ['Firmware y herramientas oficiales', 'Official firmware and tools'],
+  'install.forkNote': ['Tu música y tus temas están en la tarjeta y no se tocan. Los ajustes se pierden al desinstalar: por eso el paso 1. Requiere ADB (el depurador de Android) en el ordenador.',
+                       'Your music and themes live on the card and are left alone. Settings are lost when uninstalling: hence step 1. Needs ADB (Android\'s debug bridge) on the computer.'],
+  'compat.title': ['Compatibilidad', 'Compatibility'],
+  'compat.fw': ['Firmware del Y1', 'Y1 firmware'], 'compat.state': ['Estado', 'Status'],
+  'compat.note': ['¿Lo has probado en otro firmware? Cuéntalo en <a href="' + REPO + '/issues">GitHub</a>.', 'Tried it on another firmware? Tell us on <a href="' + REPO + '/issues">GitHub</a>.'],
+  'tinstall.title': ['Cómo instalar un tema', 'How to install a theme'],
+  'tinstall.y1': ['Desde el Y1 (Wi‑Fi)', 'From the Y1 (Wi-Fi)'], 'tinstall.pc': ['Desde el ordenador', 'From the computer'],
+  'foot.what': ['<b>New Oasis</b> es un proyecto de aficionados, gratuito y sin ánimo de lucro. Código y novedades en <a href="' + REPO + '">GitHub</a>.',
+                '<b>New Oasis</b> is a free, non-commercial fan project. Code and news on <a href="' + REPO + '">GitHub</a>.'],
+  'foot.credits': ['Créditos: basado en <a href="https://github.com/FabianZettl/inniclassic">InniClassic</a> (FabianZettl), que a su vez parte de <a href="https://github.com/ismileblue/y1_launcher">JJ Launcher / MO-ON Launcher</a> (ismileblue). Todo el mérito del launcher original, el motor multimedia y el sistema de temas es de sus autores.',
+                   'Credits: based on <a href="https://github.com/FabianZettl/inniclassic">InniClassic</a> (FabianZettl), itself built on <a href="https://github.com/ismileblue/y1_launcher">JJ Launcher / MO-ON Launcher</a> (ismileblue). All credit for the original launcher, media engine and theme system goes to their authors.'],
+  'foot.license': ['Licencia: la misma que el proyecto original, <a href="' + REPO + '/blob/master/LICENSE">solo uso personal, educativo y no comercial</a>. Todo lo de esta página es gratis. La letra Droid Serif de Claudoasis es © The Android Open Source Project, bajo licencia Apache 2.0.',
+                   'License: the same as the original project, <a href="' + REPO + '/blob/master/LICENSE">personal, educational and non-commercial use only</a>. Everything here is free. Claudoasis\'s Droid Serif type is © The Android Open Source Project, under the Apache 2.0 license.'],
+  'foot.marks': ['No afiliado con Innioasis, Apple ni Anthropic. Innioasis e Innioasis Y1 son marcas de su fabricante y se nombran solo para indicar con qué aparato funciona este proyecto. «Claudoasis» es un tema no oficial inspirado en Claude.',
+                 'Not affiliated with Innioasis, Apple or Anthropic. Innioasis and Innioasis Y1 are trademarks of their maker, named only to say which device this project runs on. "Claudoasis" is an unofficial theme inspired by Claude.']
 };
-const t = k => ES ? null : EN[k];
-const tr = (es, en) => ES ? es : en;
+const L = ES ? 0 : 1;
+const tr = k => (I[k] || [k, k])[L];
 document.documentElement.lang = ES ? 'es' : 'en';
-if (!ES) document.querySelectorAll('[data-t]').forEach(el => { const v = EN[el.dataset.t] || EN[el.textContent]; if (v) el.textContent = v; });
-if (!ES) { const h = document.querySelector('#install'); h.textContent = EN['How to install a theme']; }
+document.querySelectorAll('[data-i]').forEach(el => el.textContent = tr(el.dataset.i));
+document.querySelectorAll('[data-i-html]').forEach(el => el.innerHTML = tr(el.dataset.iHtml));
 
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const loc = o => o == null ? '' : typeof o === 'string' ? o : (ES ? o.es : o.en) || o.en || o.es || '';
 const kb = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 
-function screen(c, name) { // a Y1 main menu in the theme's colours (no album art: just a note)
+function screen(c) { // the New Oasis main menu in the theme's colours
   const scr = el('div', 'scr'); scr.style.background = c.bg; scr.style.color = c.text;
   scr.style.fontFamily = c.font === 'serif' ? "'Noto Serif','Droid Serif',Georgia,serif" : "'Segoe UI',Roboto,system-ui,sans-serif";
-  const bar = el('div', 'bar'); bar.style.background = c.bar; bar.append(el('span', null, 'iPod'), el('span', null, '57 %'));
+  const now = new Date(), hhmm = now.toLocaleTimeString(ES ? 'es-ES' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+  const bar = el('div', 'bar'); bar.style.background = c.bar; bar.append(el('span', null, ES ? 'Menú' : 'Menu'), el('span', null, '▮ 57 %'));
   const main = el('div', 'main'), ul = el('ul');
   const items = ES ? ['Reproduciendo', 'Música', 'Vídeos', 'Podcasts', 'Radio FM', 'Bluetooth', 'Extras', 'Ajustes']
                    : ['Now Playing', 'Music', 'Videos', 'Podcasts', 'FM Radio', 'Bluetooth', 'Extras', 'Settings'];
   items.forEach((s, i) => { const li = el('li'); li.append(el('span', null, s)); if (i === 0) { li.style.background = c.accent; li.style.color = '#fff'; li.append(el('span', null, '›')); } ul.append(li); });
   const side = el('div', 'side'); side.style.background = `color-mix(in srgb, ${c.text} 7%, transparent)`;
-  const now = new Date(), clock = el('div', 'clock', now.toLocaleTimeString(ES ? 'es-ES' : 'en-GB', { hour: '2-digit', minute: '2-digit' }));
   const line = el('div', 'line'); line.style.background = c.accent;
   const art = el('div', 'art', '♪'); art.style.background = `color-mix(in srgb, ${c.accent} 22%, transparent)`; art.style.color = c.accent;
-  side.append(clock, line, art);
+  side.append(el('div', 'clock', hhmm), line, art);
   main.append(ul, side); scr.append(bar, main);
   return scr;
 }
 
 function themeCard(th) {
-  const card = el('article', 'card');
-  const shot = el('div', 'shot'); shot.append(screen(th.colors || { bg: '#222', bar: '#111', text: '#eee', text2: '#999', accent: '#69c' }, th.name)); card.append(shot);
-  const body = el('div', 'body');
-  body.append(el('h3', null, th.title || th.name));
+  const card = el('article', 'card'), shot = el('div', 'shot');
+  shot.append(screen(th.colors || { bg: '#222', bar: '#111', text: '#eee', text2: '#999', accent: '#5FC4B4' })); card.append(shot);
+  const body = el('div', 'body'); body.append(el('h3', null, th.title || th.name));
   const tags = el('div', 'tags');
   if (th.variant) tags.append(el('span', 'tag', loc(th.variant)));
-  if (th.unofficial) tags.append(el('span', 'tag warn', tr('No oficial', 'Unofficial')));
-  tags.append(el('span', 'tag', tr('Versión ', 'Version ') + th.version));
+  if (th.unofficial) tags.append(el('span', 'tag warn', ES ? 'No oficial' : 'Unofficial'));
+  tags.append(el('span', 'tag', (ES ? 'Versión ' : 'Version ') + th.version));
   body.append(tags, el('p', null, loc(th.description)));
   if (th.author) { const a = el('p', null, th.author); a.style.fontSize = '12.5px'; body.append(a); }
-  const row = el('div', 'row'), dl = el('a', 'btn', '⬇ ' + tr('Descargar .zip', 'Download .zip'));
+  const row = el('div', 'row'), dl = el('a', 'btn', '⬇ ' + (ES ? 'Descargar .zip' : 'Download .zip'));
   dl.href = th.file; dl.download = th.name + '.zip';
-  row.append(dl, el('span', 'size', kb(th.size) + ' · ' + tr('en el Y1: «', 'on the Y1: "') + th.name + tr('»', '"')));
+  row.append(dl, el('span', 'size', kb(th.size) + ' · ' + (ES ? 'en el Y1: «' + th.name + '»' : 'on the Y1: "' + th.name + '"')));
   body.append(row); card.append(body);
   return card;
 }
@@ -156,35 +206,64 @@ function themeCard(th) {
 function gameLink(g) {
   const a = el('a', 'game'); a.href = 'games/#' + g.id;
   const name = el('span', null, loc(g.name));
-  name.append(el('small', null, g.music ? tr('Necesita tu Y1', 'Needs your Y1') : tr('Jugar en el navegador', 'Play in the browser')));
+  name.append(el('small', null, g.music ? (ES ? 'Necesita tu Y1' : 'Needs your Y1') : (ES ? 'Jugar en el navegador' : 'Play in the browser')));
   a.append(el('span', 'em', g.emoji || '🎮'), name);
   return a;
 }
 
-function fill(id, items) { const ol = document.getElementById(id); items.forEach(h => { const li = el('li'); li.innerHTML = h; ol.append(li); }); }
-fill('stepsY1', ES ? [
+function fill(id, es, en) { const ol = document.getElementById(id); (ES ? es : en).forEach(h => { const li = el('li'); li.innerHTML = h; ol.append(li); }); }
+fill('stepsFork', [
+  'En el Y1, guarda tus ajustes: <b>Ajustes → Sistema → Copia de seguridad</b> (se guarda en <code>Y1_Backup</code> en la tarjeta).',
+  'Descarga el APK de New Oasis desde las <a href="' + REPO + '/releases">versiones publicadas en GitHub</a> <i>(próximamente)</i>.',
+  'Conecta el Y1 al ordenador y desinstala el launcher actual: <code>adb uninstall com.themoon.y1</code>',
+  'Instala New Oasis: <code>adb install NewOasis.apk</code>',
+  'En el Y1, restaura tus ajustes desde <b>Copia de seguridad</b>.'
+], [
+  'On the Y1, save your settings: <b>Settings → System → Backup &amp; Restore</b> (saved to <code>Y1_Backup</code> on the card).',
+  'Download the New Oasis APK from the <a href="' + REPO + '/releases">releases on GitHub</a> <i>(coming soon)</i>.',
+  'Connect the Y1 to the computer and uninstall the current launcher: <code>adb uninstall com.themoon.y1</code>',
+  'Install New Oasis: <code>adb install NewOasis.apk</code>',
+  'On the Y1, restore your settings from <b>Backup &amp; Restore</b>.'
+]);
+fill('stepsOfficial', [
+  'El firmware oficial del Y1, su herramienta de instalación («Universal Flash Tool»), el driver USB y el manual en español están en el <a href="' + SUPPORT + '">Centro de soporte de Innioasis</a>.',
+  'Descárgalos siempre de ahí: no los copiamos en esta web.',
+  'Si algo sale mal, reinstalar el firmware oficial devuelve el Y1 a su estado de fábrica.'
+], [
+  'The Y1\'s official firmware, its installer ("Universal Flash Tool"), the USB driver and the manuals are on the <a href="' + SUPPORT + '">Innioasis Support Center</a>.',
+  'Always download them from there: this site doesn\'t copy them.',
+  'If anything goes wrong, reinstalling the official firmware puts the Y1 back to factory state.'
+]);
+const compat = ES ? [
+  ['Compilación «Y1_001» (julio de 2025)', '<span class="st-ok">✔ Probado a diario</span>'],
+  ['3.1.2 (junio de 2026, el oficial más reciente)', '<span class="st-wait">Sin probar todavía</span>'],
+  ['Otros', '<span class="st-wait">Sin probar</span>']
+] : [
+  ['Build "Y1_001" (July 2025)', '<span class="st-ok">✔ Used daily</span>'],
+  ['3.1.2 (June 2026, the latest official)', '<span class="st-wait">Not tested yet</span>'],
+  ['Others', '<span class="st-wait">Not tested</span>']
+];
+compat.forEach(([a, b]) => { const tr_ = document.getElementById('compat').insertRow(); tr_.insertCell().textContent = a; tr_.insertCell().innerHTML = b; });
+fill('stepsY1', [
   'Enciende el <b>Wi‑Fi</b> del Y1.',
   'Ve a <b>Ajustes → Pantalla → Tema</b> y baja hasta <b>Descargar más temas</b>.',
   'Elige un tema y pulsa el <b>botón central</b>: se descarga y se abre su vista previa.',
   'Pulsa otra vez el <b>botón central</b> para aplicarlo.'
-] : [
+], [
   'Turn on the Y1\'s <b>Wi-Fi</b>.',
   'Go to <b>Settings → Display → Theme</b> and scroll down to <b>Get More Themes</b>.',
   'Pick a theme and press <b>Center</b>: it downloads and its preview opens.',
   'Press <b>Center</b> again to apply it.'
 ]);
-fill('stepsPC', ES ? [
+fill('stepsPC', [
   'Descarga el <code>.zip</code> del tema desde esta página.',
   'Cópialo, sin descomprimir, en la carpeta <code>Y1_Themes</code> de la tarjeta (por USB o con el <b>Servidor Web</b> del Y1).',
   'En el Y1, abre <b>Ajustes → Pantalla → Tema</b>: el tema aparece en la lista.'
-] : [
+], [
   'Download the theme\'s <code>.zip</code> from this page.',
   'Copy it, without unzipping, into the <code>Y1_Themes</code> folder on the card (over USB or with the Y1\'s <b>Web Server</b>).',
   'On the Y1, open <b>Settings → Display → Theme</b>: the theme is in the list.'
 ]);
-document.getElementById('foot').innerHTML = ES
-  ? 'Proyecto no oficial de aficionados. InniClassic es un launcher de la comunidad para el Innioasis Y1; este es un fork. «Claudoasis» es un tema no oficial inspirado en Claude, sin relación con Anthropic. Código: <a href="https://github.com/milescarter93/inniclassic">github.com/milescarter93/inniclassic</a>'
-  : 'Unofficial fan project. InniClassic is a community launcher for the Innioasis Y1; this is a fork. "Claudoasis" is an unofficial theme inspired by Claude, not affiliated with Anthropic. Code: <a href="https://github.com/milescarter93/inniclassic">github.com/milescarter93/inniclassic</a>';
 
 fetch('catalog.json', { cache: 'no-cache' }).then(r => r.json()).then(cat => {
   const grid = document.getElementById('themeGrid'); grid.innerHTML = '';
@@ -192,7 +271,7 @@ fetch('catalog.json', { cache: 'no-cache' }).then(r => r.json()).then(cat => {
   const gg = document.getElementById('gameGrid'); (cat.games || []).forEach(g => gg.append(gameLink(g)));
 }).catch(() => {
   const grid = document.getElementById('themeGrid'); grid.innerHTML = '';
-  grid.append(el('p', 'err', tr('No se pudo cargar el catálogo. Recarga la página.', EN['catalog-error'])));
+  grid.append(el('p', 'err', ES ? 'No se pudo cargar el catálogo. Recarga la página.' : 'Couldn\'t load the catalog. Reload the page.'));
 });
 </script>
 </body>
