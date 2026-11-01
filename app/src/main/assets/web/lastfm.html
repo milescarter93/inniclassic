@@ -9,6 +9,7 @@
   a{color:#B39DDB;text-decoration:none}
   .top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:0 20px;height:56px;background:#1C1C23;border-bottom:1px solid #33333F}
   .brand{font-weight:700;font-size:17px;white-space:nowrap}
+  .brand{color:inherit;text-decoration:none}
   .brand span{color:#B39DDB}
   .nav{display:flex;gap:4px;overflow-x:auto;flex:1;scrollbar-width:none}
   .nav::-webkit-scrollbar{display:none}
@@ -34,7 +35,7 @@
   data-turnon="{{Turn Scrobbling On}}" data-turnoff="{{Turn Scrobbling Off}}" data-logout="{{Log Out}}"
   data-notlogged="{{Not logged in to Last.fm.}}" data-fill="{{Please fill in both fields.}}"
   data-logging="{{Logging in...}}"></div>
-<div class="top"><div class="brand">Y1 <span>InniClassic</span></div><nav class="nav">
+<div class="top"><a class="brand" href="/"><svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true" style="vertical-align:-6px;margin-right:7px"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".35"/><circle cx="16" cy="16" r="5" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".35"/><path d="M16 4.5c4.6 4.4 6.6 7.9 6.6 10.6a6.6 6.6 0 0 1-13.2 0c0-2.7 2-6.2 6.6-10.6z" fill="#5FC4B4"/></svg>New <span>Oasis</span></a><nav class="nav">
   <a href="/">📁 {{Files}}</a><a href="/library">📚 {{Library & Playlists}}</a>
   <a href="/media">🎙️ {{Podcasts & Audiobooks}}</a><a class="on" href="/lastfm">🎧 Last.fm</a><a href="/games">🎮 {{Games}}</a></nav></div>
 <div class="page">

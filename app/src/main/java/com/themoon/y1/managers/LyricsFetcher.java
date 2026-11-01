@@ -28,7 +28,7 @@ import javax.net.ssl.X509TrustManager;
 // predates the roots LRCLIB's certificates chain to.
 public final class LyricsFetcher {
     private static final String TAG = "Y1Lyrics";
-    private static final String UA = "InniClassic-Y1 (https://github.com/milescarter93/inniclassic)";
+    private static final String UA = "NewOasis-Y1 (https://github.com/milescarter93/inniclassic)";
     private static final long MISSING_RETRY_MS = 30L * 24 * 60 * 60 * 1000;
 
     public static final int FOUND = 1, NOT_FOUND = 2;

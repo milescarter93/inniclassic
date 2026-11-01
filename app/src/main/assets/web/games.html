@@ -11,6 +11,7 @@
   a{color:var(--accent);text-decoration:none}
   .top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:0 20px;height:56px;background:#1C1C23;border-bottom:1px solid var(--line)}
   .brand{font-weight:700;font-size:17px;white-space:nowrap}
+  .brand{color:inherit;text-decoration:none}
   .brand span{color:var(--accent)}
   .nav{display:flex;gap:4px;overflow-x:auto;flex:1;scrollbar-width:none}
   .nav::-webkit-scrollbar{display:none}
@@ -57,7 +58,7 @@
 </style>
 </head>
 <body>
-<div class="top"><div class="brand">Y1 <span>InniClassic</span></div><nav class="nav" id="nav" hidden>
+<div class="top"><a class="brand" href="/"><svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true" style="vertical-align:-6px;margin-right:7px"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".35"/><circle cx="16" cy="16" r="5" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".35"/><path d="M16 4.5c4.6 4.4 6.6 7.9 6.6 10.6a6.6 6.6 0 0 1-13.2 0c0-2.7 2-6.2 6.6-10.6z" fill="#5FC4B4"/></svg>New <span>Oasis</span></a><nav class="nav" id="nav" hidden>
   <a href="/" data-t="Files">📁 Files</a><a href="/library" data-t="Library & Playlists">📚 Library & Playlists</a>
   <a href="/media" data-t="Podcasts & Audiobooks">🎙️ Podcasts & Audiobooks</a><a href="/lastfm">🎧 Last.fm</a>
   <a class="on" href="/games" data-t="Games">🎮 Games</a></nav></div>
@@ -121,8 +122,8 @@ const ES = {
   "Loading your music...":"Cargando tu música...","Playing with your Y1's music (%d songs).":"Jugando con la música de tu Y1 (%d canciones).",
   "The music games use your Y1's songs: open this page from its web server.":"Los juegos de música usan las canciones de tu Y1: abre esta página desde su servidor web.",
   "Couldn't load the Y1's library.":"No se pudo cargar la biblioteca del Y1.",
-  "Web versions of InniClassic's mini-games, to try them on the computer. They play like on the Y1: same rules, same buttons.":
-    "Versiones web de los minijuegos de InniClassic para probarlos en el ordenador. Se juegan como en el Y1: mismas reglas, mismos botones.",
+  "Web versions of New Oasis's mini-games, to try them on the computer. They play like on the Y1: same rules, same buttons.":
+    "Versiones web de los minijuegos de New Oasis para probarlos en el ordenador. Se juegan como en el Y1: mismas reglas, mismos botones.",
   "Wheel":"Rueda","Center button":"Botón central","Back (MENU)":"Atrás (MENÚ)","Previous":"Retroceder","Play/Pause":"Reproducir/Pausa",
   "or spin the wheel / mouse wheel":"o gira la rueda / rueda del ratón","or click the screen":"o haz clic en la pantalla",
   "Dark":"Oscuro","Claude (dark)":"Claude (oscuro)","Claude (light)":"Claude (claro)","iPod (light)":"iPod (claro)",
@@ -865,7 +866,7 @@ function renderStatic() {
     const em = el.textContent.match(/^\S+\s/); const word = t(el.dataset.t);
     el.textContent = el.closest('.nav') && em ? em[0] + word : word;
   });
-  document.getElementById('intro').textContent = t('Web versions of InniClassic\'s mini-games, to try them on the computer. They play like on the Y1: same rules, same buttons.');
+  document.getElementById('intro').textContent = t('Web versions of New Oasis\'s mini-games, to try them on the computer. They play like on the Y1: same rules, same buttons.');
   const rows = [
     [t('Wheel'), ['←', '→'], t('or spin the wheel / mouse wheel')],
     [t('Center button'), ['Intro', 'Espacio'], t('or click the screen')],

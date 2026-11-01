@@ -102,7 +102,7 @@ public final class AudiobookStore {
 
     private static String get(Context c, String url) throws Exception {
         okhttp3.Response r = http(c).newCall(new okhttp3.Request.Builder().url(url)
-                .header("User-Agent", "InniClassic (Innioasis Y1)").build()).execute();
+                .header("User-Agent", "NewOasis (Innioasis Y1; +https://milescarter93.github.io/inniclassic/)").build()).execute();
         try {
             if (!r.isSuccessful()) throw new java.io.IOException("HTTP " + r.code());
             return r.body().string();
@@ -427,7 +427,7 @@ public final class AudiobookStore {
         long have = part.exists() ? part.length() : 0;
         String url = "https://archive.org/download/" + URLEncoder.encode(j.details.book.id, "UTF-8") + "/"
                 + URLEncoder.encode(ch.name, "UTF-8").replace("+", "%20");
-        okhttp3.Request.Builder rb = new okhttp3.Request.Builder().url(url).header("User-Agent", "InniClassic (Innioasis Y1)");
+        okhttp3.Request.Builder rb = new okhttp3.Request.Builder().url(url).header("User-Agent", "NewOasis (Innioasis Y1; +https://milescarter93.github.io/inniclassic/)");
         if (have > 0) rb.header("Range", "bytes=" + have + "-");
         okhttp3.Response r = http(c).newCall(rb.build()).execute();
         try {

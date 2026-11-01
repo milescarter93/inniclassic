@@ -93,7 +93,10 @@ import org.conscrypt.Conscrypt;
 
 public class MainActivity extends Activity {
     // 주의: 주소 맨 끝에 반드시 슬래시(/)를 붙여주세요!
-    private static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
+    // 🚀 [New Oasis] Updates come from New Oasis's own site (GitHub Pages, HTTPS), not JJ Launcher's server:
+    // output-metadata.json there names the version and the APK (an absolute URL, e.g. a GitHub release
+    // asset) and its SHA-256, which is checked before installing.
+    private static final String SERVER_BASE_URL = "https://milescarter93.github.io/inniclassic/";
     private static final String METADATA_URL = SERVER_BASE_URL + "output-metadata.json";
     // 🚀 [대개조 완료] 원하는 앨범 개수(홀수: 3, 5, 7 등)를 언제든 설정할 수 있는 스마트 제어판
     private int visibleCoversCount = 7; // 💡 5개로 복귀! 테스트 시 7 등으로 여기만 바꾸면 전체 자동 연동됩니다.
@@ -5020,7 +5023,7 @@ public class MainActivity extends Activity {
 
         // the main menu's status bar only spans the menu column, as on the real screen
         FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams((int) (ClassicMenuStyle.PANE_WIDTH_DP * density), top);
-        root.addView(buildPreviewStatusBar("iPod"), barLp);
+        root.addView(buildPreviewStatusBar(t("Main Menu")), barLp);
         return root;
     }
 
@@ -5579,8 +5582,8 @@ public class MainActivity extends Activity {
         } else if (currentScreenState == STATE_VIDEOS) {
             title = t("Videos");
         } else if (currentScreenState == STATE_MENU) {
-            // 🚀 [iPod 스타일] 실제 아이팟처럼 메인 메뉴 좌상단에 "iPod"라고 표시합니다
-            title = "iPod";
+            // 🚀 [New Oasis] The status bar names the screen, here the main menu (it used to say "iPod").
+            title = t("Main Menu");
         } else {
             title = "";
         }
@@ -8852,7 +8855,7 @@ public class MainActivity extends Activity {
                     // 🚀 [필수 1] 깃허브 보안(TLS 1.2) 뚫기: 만들어둔 비밀 무기 장착!
                     if (conn instanceof javax.net.ssl.HttpsURLConnection) {
                         try {
-                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
+                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(updateSocketFactory(MainActivity.this));
                         } catch (Exception e) {
                         }
                     }
@@ -8867,7 +8870,7 @@ public class MainActivity extends Activity {
                         conn = (java.net.HttpURLConnection) new java.net.URL(newUrl).openConnection();
                         if (conn instanceof javax.net.ssl.HttpsURLConnection) {
                             try {
-                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
+                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(updateSocketFactory(MainActivity.this));
                             } catch (Exception e) {
                             }
                         }
@@ -8887,7 +8890,8 @@ public class MainActivity extends Activity {
 
                     final int serverVersionCode = element.getInt("versionCode");
                     final String serverVersionName = element.getString("versionName");
-                    final String apkFileName = element.getString("outputFile");
+                    final String apkFileName = element.optString("outputFile", "");
+                    final String apkSha256 = element.optString("sha256", "");
 
                     runOnUiThread(new Runnable() {
                         @Override
@@ -8897,7 +8901,7 @@ public class MainActivity extends Activity {
                             tvServer.setText("v" + serverVersionName);
 
                             // 🚀 [비교] 업데이트가 필요할 때
-                            if (serverVersionCode > myVersionCode) {
+                            if (serverVersionCode > myVersionCode && !apkFileName.isEmpty()) {
                                 tvServer.setTextColor(0xFF00FF00); // 서버 버전을 눈에 띄는 초록색으로!
 
                                 btnExecuteUpdate.setVisibility(View.VISIBLE);
@@ -8907,8 +8911,9 @@ public class MainActivity extends Activity {
                                     @Override
                                     public void onClick(View v) {
                                         clickFeedback();
-                                        String downloadUrl = SERVER_BASE_URL + apkFileName;
-                                        downloadAndInstallApk(downloadUrl); // 다운로드 엔진 호출
+                                        String downloadUrl = apkFileName.startsWith("https://") ? apkFileName
+                                                : SERVER_BASE_URL + apkFileName;
+                                        downloadAndInstallApk(downloadUrl, apkSha256); // 다운로드 엔진 호출
                                     }
                                 });
                             }
@@ -9072,7 +9077,30 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [개조 완료] 다운로드 진행률(%)과 용량(MB)을 실시간 팝업으로 보여주는 엔진!
-    private void downloadAndInstallApk(final String apkUrl) {
+    // 🚀 [New Oasis] Updates use the same TLS as the podcasts and the theme store (Conscrypt with the bundled
+    // roots): Android 4.2's own TLS can't complete a handshake with GitHub. LyricsFetcher.client() installs it
+    // as the default HTTPS socket factory.
+    private static javax.net.ssl.SSLSocketFactory updateSocketFactory(Context context) throws Exception {
+        com.themoon.y1.managers.LyricsFetcher.client(context);
+        return javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory();
+    }
+
+    private static String sha256Of(File f) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        java.io.InputStream in = new java.io.FileInputStream(f);
+        try {
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+        } finally {
+            in.close();
+        }
+        StringBuilder hex = new StringBuilder();
+        for (byte b : md.digest()) hex.append(String.format(Locale.US, "%02x", b));
+        return hex.toString();
+    }
+
+    private void downloadAndInstallApk(final String apkUrl, final String expectedSha256) {
         // 🚀 1. 화면에 띄울 '다운로드 진행률 팝업창'의 디자인을 자바 코드로 직접 조립합니다.
         final ProgressBar progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
@@ -9109,7 +9137,7 @@ public class MainActivity extends Activity {
                     // 🚀 [필수 1] 깃허브 보안(TLS 1.2) 뚫기
                     if (conn instanceof javax.net.ssl.HttpsURLConnection) {
                         try {
-                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
+                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(updateSocketFactory(MainActivity.this));
                         } catch (Exception e) {
                         }
                     }
@@ -9127,7 +9155,7 @@ public class MainActivity extends Activity {
                         conn = (java.net.HttpURLConnection) new java.net.URL(newUrl).openConnection();
                         if (conn instanceof javax.net.ssl.HttpsURLConnection) {
                             try {
-                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
+                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(updateSocketFactory(MainActivity.this));
                             } catch (Exception e) {
                             }
                         }
@@ -9184,6 +9212,12 @@ public class MainActivity extends Activity {
                         if (updateFile.exists())
                             updateFile.delete();
                         throw new Exception("Incomplete Download: Size Mismatch");
+                    }
+                    // 🚀 [New Oasis] Only the exact APK the site published gets installed.
+                    if (expectedSha256 == null || expectedSha256.isEmpty()
+                            || !expectedSha256.equalsIgnoreCase(sha256Of(updateFile))) {
+                        updateFile.delete();
+                        throw new Exception("Update rejected: SHA-256 mismatch");
                     }
 
                     // 🚀 [여기서부터 덮어쓰기!!] 다운로드가 끝나면 창을 바로 닫지 않고, 서버가 준 용량과 내가 받은 용량을 화면에 박제합니다!

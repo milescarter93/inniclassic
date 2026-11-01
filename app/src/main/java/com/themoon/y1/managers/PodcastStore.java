@@ -115,7 +115,7 @@ public final class PodcastStore {
 
     private static okhttp3.Response open(Context c, String url, long from) throws Exception {
         okhttp3.Request.Builder rb = new okhttp3.Request.Builder().url(url)
-                .header("User-Agent", "InniClassic/1.4 (Innioasis Y1; podcast player)");
+                .header("User-Agent", "NewOasis/1.0 (Innioasis Y1; podcast player)");
         if (from > 0) rb.header("Range", "bytes=" + from + "-");
         return http(c).newCall(rb.build()).execute();
     }
@@ -196,7 +196,7 @@ public final class PodcastStore {
     private static synchronized void writeSubscriptions(List<Show> shows) throws Exception {
         if (!ROOT.isDirectory()) ROOT.mkdirs();
         Writer w = new OutputStreamWriter(new FileOutputStream(SUBS), "UTF-8");
-        w.write("# InniClassic podcasts: Name|RSS address, one per line\n");
+        w.write("# New Oasis podcasts: Name|RSS address, one per line\n");
         for (Show s : shows) w.write(s.name.replace("|", "/") + "|" + s.feedUrl + "\n");
         w.close();
     }
@@ -713,9 +713,9 @@ public final class PodcastStore {
 
     public static File exportOpml(Context c) throws Exception {
         ROOT.mkdirs();
-        File out = new File(ROOT, "InniClassic podcasts.opml");
+        File out = new File(ROOT, "New Oasis podcasts.opml");
         Writer w = new OutputStreamWriter(new FileOutputStream(out), "UTF-8");
-        w.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\">\n<head><title>InniClassic podcasts</title></head>\n<body>\n");
+        w.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\">\n<head><title>New Oasis podcasts</title></head>\n<body>\n");
         for (Show s : subscriptions(c))
             w.write("  <outline type=\"rss\" text=\"" + xml(s.name) + "\" title=\"" + xml(s.name) + "\" xmlUrl=\"" + xml(s.feedUrl) + "\"/>\n");
         w.write("</body>\n</opml>\n");
