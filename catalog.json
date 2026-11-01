@@ -63,65 +63,44 @@
   "games": [
     {
       "id": "quiz",
-      "name": {
-        "es": "Quiz musical",
-        "en": "Music Quiz"
-      },
+      "name": "Music Quiz",
       "emoji": "🎵",
       "music": true,
       "inApp": true
     },
     {
       "id": "bricks",
-      "name": {
-        "es": "Ladrillos",
-        "en": "Bricks"
-      },
+      "name": "Bricks",
       "emoji": "🧱",
       "inApp": true
     },
     {
       "id": "snake",
-      "name": {
-        "es": "Serpiente",
-        "en": "Snake"
-      },
+      "name": "Snake",
       "emoji": "🐍",
       "inApp": true
     },
     {
       "id": "simon",
-      "name": {
-        "es": "Simón",
-        "en": "Simon"
-      },
-      "emoji": "🔴",
+      "name": "Wheel Says",
+      "emoji": "🎡",
       "inApp": true
     },
     {
       "id": "blocks",
-      "name": {
-        "es": "Bloques",
-        "en": "Blocks"
-      },
-      "emoji": "🟦",
+      "name": "Block Puzzle",
+      "emoji": "🧩",
       "inApp": true
     },
     {
       "id": "flappy",
-      "name": {
-        "es": "Flappy",
-        "en": "Flappy"
-      },
-      "emoji": "🐤",
+      "name": "Birdy",
+      "emoji": "🐦",
       "inApp": true
     },
     {
       "id": "older",
-      "name": {
-        "es": "¿Cuál salió antes?",
-        "en": "Which Came First?"
-      },
+      "name": "Which Came First?",
       "emoji": "📅",
       "music": true,
       "inApp": true
