@@ -1,4 +1,36 @@
-# InniClassic
+# New Oasis
+
+**New Oasis** es un launcher para el **Innioasis Y1**: un fork de aficionados, gratuito y sin ánimo de lucro, de
+[InniClassic](https://github.com/FabianZettl/inniclassic), que a su vez parte de
+[JJ Launcher / MO-ON Launcher](https://github.com/ismileblue/y1_launcher). Todo el mérito del launcher original, el
+motor multimedia y el sistema de temas es de sus autores.
+
+*New Oasis is a free, non-commercial fan fork of InniClassic for the Innioasis Y1.*
+
+- 🌐 **Web, temas y juegos / website, themes and games:** https://milescarter93.github.io/inniclassic/
+- 🛠️ **Firmware y herramientas oficiales / official firmware and tools:** [Innioasis Support Center](https://www.innioasis.com/pages/support-center)
+- 📦 **Versiones / releases:** [Releases](../../releases) *(la primera versión pública está en preparación / first public release in preparation)*
+
+### Qué añade New Oasis / What New Oasis adds
+
+- Tienda de temas en el propio Y1 (Ajustes → Pantalla → Tema → Descargar más temas) y el tema no oficial «Claudoasis».
+- Podcasts y audiolibros (LibriVox) desde internet, con descargas que continúan si se corta el Wi‑Fi.
+- Minijuegos para la rueda, jugables también en el navegador.
+- Servidor web rediseñado: archivos, biblioteca, podcasts, Last.fm y juegos, en ordenador y móvil.
+- Arreglos de estabilidad: el cierre al guardar la posición de la canción y la reanudación automática si el launcher se cierra.
+- Bloqueo: pulsación corta del botón central para encender o apagar la pantalla; larga para desbloquear.
+- Interfaz y traducción completas al español.
+
+> New Oasis no está afiliado con Innioasis, Apple ni Anthropic. Innioasis e Innioasis Y1 son marcas de su fabricante.
+> Se distribuye con la misma [licencia](LICENSE) que el proyecto original: solo uso personal, educativo y no comercial.
+> *Not affiliated with Innioasis, Apple or Anthropic. Same non-commercial [license](LICENSE) as the original project.*
+
+---
+
+*Lo que sigue es el README del proyecto original InniClassic, conservado como referencia. / Below: the original
+InniClassic README, kept for reference.*
+
+## InniClassic
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform">
@@ -60,7 +92,7 @@ This is **not** a GitHub "Fork" in the technical sense (it's a separate reposito
 - **Wireless PC Upload** — a small web server for copying music onto the device over Wi-Fi, no cable needed
 
 ### Installable two ways
-- **Flashable ROM** (`rom.zip`) via the [Innioasis Updater](https://www.innioasis.com/pages/download) — no ADB required
+- **Flashable ROM** (`rom.zip`) via the Innioasis flash tool (now on the [Innioasis Support Center](https://www.innioasis.com/pages/support-center)) — no ADB required
 - Standalone **APK** for updating an existing install
 
 ### Under the hood
@@ -82,7 +114,7 @@ There are two ways to get InniClassic onto your Innioasis Y1. Method 1 is recomm
 The ROM package installs the latest **Y1 Firmware 3.1.2** with **InniClassic** already baked in as the system launcher — no ADB, no manual uninstall step, nothing else to do afterward.
 
 1. Download `rom.zip` from this repo's [Releases](../../releases) page — the Innioasis Updater expects this exact filename, so keep it as-is after downloading.
-2. Open the [Innioasis Updater](https://www.innioasis.com/pages/download), select that zip as a local firmware file, and follow the on-screen instructions.
+2. Open the Innioasis flash tool (now on the [Innioasis Support Center](https://www.innioasis.com/pages/support-center)), select that zip as a local firmware file, and follow the on-screen instructions.
 3. Once it finishes and the device reboots, InniClassic is the active launcher — nothing further to install.
 
 > [!WARNING]
