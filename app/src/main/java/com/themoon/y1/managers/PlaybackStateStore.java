@@ -2,6 +2,7 @@ package com.themoon.y1.managers;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -22,6 +23,7 @@ public class PlaybackStateStore {
 
     private static final String PREFS = "Y1_PLAYBACK";
     private static final String QUEUE_FILE = "playback_queue.txt";
+    private static final String PROGRESS_FILE = "playback_progress.txt";
     private static final String SEPARATOR = "---";
     // Queue writes happen off the UI thread, one at a time and in order.
     private static final ExecutorService WRITER = Executors.newSingleThreadExecutor();
@@ -58,11 +60,14 @@ public class PlaybackStateStore {
             public void run() {
                 File tmp = new File(target.getPath() + ".tmp");
                 try {
-                    StringBuilder sb = new StringBuilder();
-                    for (String line : lines) sb.append(line).append('\n');
-                    FileOutputStream out = new FileOutputStream(tmp);
+                    // Streamed: the queue can be the whole library (hundreds of KB as one string).
+                    java.io.Writer out = new java.io.BufferedWriter(
+                            new java.io.OutputStreamWriter(new FileOutputStream(tmp), "UTF-8"), 8192);
                     try {
-                        out.write(sb.toString().getBytes("UTF-8"));
+                        for (String line : lines) {
+                            out.write(line);
+                            out.write('\n');
+                        }
                     } finally {
                         out.close();
                     }
@@ -83,14 +88,83 @@ public class PlaybackStateStore {
         saveProgress(context, index, positionMs, playing, false);
     }
 
-    // sync = true when the process may die right after (crash handler): commit() instead of apply().
+    // The position is saved every few seconds while music plays. It used to go through SharedPreferences,
+    // whose apply() rewrites a whole XML file with a fresh 16 KB buffer each time; on the Y1's Dalvik that
+    // allocation now and then landed on a heap page the GC had just released and the VM crashed (SIGSEGV in
+    // System.arraycopy on QueuedWork's "pool-N-thread-1", always mid-song). A tiny file of our own avoids it.
+    //
+    // The line also records SystemClock.elapsedRealtime(): it keeps counting across a process death but
+    // restarts on reboot, so the next launch can tell "died while playing a moment ago" from "powered on".
+    //
+    // sync = true when the process may die right after (crash handler): written on the calling thread.
     public static void saveProgress(Context context, int index, int positionMs, boolean playing, boolean sync) {
-        SharedPreferences.Editor editor = prefs(context).edit()
-                .putInt("index", index)
-                .putInt("position_ms", Math.max(0, positionMs))
-                .putBoolean("playing", playing);
-        if (sync) editor.commit();
-        else editor.apply();
+        final File target = new File(context.getFilesDir(), PROGRESS_FILE);
+        final String line = index + " " + Math.max(0, positionMs) + " " + (playing ? 1 : 0) + " "
+                + SystemClock.elapsedRealtime() + "\n";
+        if (sync) {
+            writeSmall(target, line);
+            return;
+        }
+        WRITER.execute(new Runnable() {
+            @Override
+            public void run() {
+                writeSmall(target, line);
+            }
+        });
+    }
+
+    private static void writeSmall(File target, String line) {
+        try {
+            FileOutputStream out = new FileOutputStream(target);
+            try {
+                out.write(line.getBytes("US-ASCII"));
+            } finally {
+                out.close();
+            }
+        } catch (Exception e) {
+        }
+    }
+
+    private static class Progress {
+        int index, positionMs;
+        boolean playing;
+        long savedAt = -1;
+    }
+
+    private static Progress readProgress(Context context) {
+        Progress pr = new Progress();
+        File file = new File(context.getFilesDir(), PROGRESS_FILE);
+        if (file.isFile()) {
+            try {
+                BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(file), "US-ASCII"));
+                try {
+                    String[] parts = in.readLine().trim().split(" ");
+                    pr.index = Integer.parseInt(parts[0]);
+                    pr.positionMs = Integer.parseInt(parts[1]);
+                    pr.playing = "1".equals(parts[2]);
+                    pr.savedAt = Long.parseLong(parts[3]);
+                    return pr;
+                } finally {
+                    in.close();
+                }
+            } catch (Exception e) {
+            }
+        }
+        // Saved by an older version.
+        SharedPreferences p = prefs(context);
+        pr.index = p.getInt("index", 0);
+        pr.positionMs = p.getInt("position_ms", 0);
+        pr.playing = p.getBoolean("playing", false);
+        return pr;
+    }
+
+    // Music was playing and the last periodic save is only seconds old: the process died without passing
+    // through the Java crash handler (a native crash, or the system killing it), so the music should go on.
+    public static boolean diedWhilePlaying(Context context) {
+        Progress pr = readProgress(context);
+        if (!pr.playing || pr.savedAt < 0) return false;
+        long age = SystemClock.elapsedRealtime() - pr.savedAt;
+        return age >= 0 && age < RESUME_WINDOW_MS;
     }
 
     public static State load(Context context) {
@@ -118,10 +192,9 @@ public class PlaybackStateStore {
             return null;
         }
         if (current.isEmpty()) return null;
-        int index = p.getInt("index", 0);
-        if (index < 0 || index >= current.size()) return null;
-        return new State(original.isEmpty() ? current : original, current, index,
-                p.getInt("position_ms", 0), p.getBoolean("playing", false));
+        Progress pr = readProgress(context);
+        if (pr.index < 0 || pr.index >= current.size()) return null;
+        return new State(original.isEmpty() ? current : original, current, pr.index, pr.positionMs, pr.playing);
     }
 
     // A relaunch normally follows within seconds; if it didn't happen (the user opens the app hours

@@ -56,6 +56,7 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <receiver android:name=".WatchdogReceiver" android:exported="false" />
         <receiver android:name=".AlarmReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="com.themoon.y1.ALARM_RING" />

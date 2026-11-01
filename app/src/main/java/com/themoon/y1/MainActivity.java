@@ -422,7 +422,12 @@ public class MainActivity extends Activity {
     private final Runnable backlightTimeoutRunnable = new Runnable() {
         @Override
         public void run() {
-            turnOffScreen();
+            // Locked and woken by a short press of Center: just switch the display off again.
+            if (inputLocked) {
+                if (isDisplayReallyOn()) blankScreen();
+            } else {
+                turnOffScreen();
+            }
         }
     };
 
@@ -773,6 +778,12 @@ public class MainActivity extends Activity {
         lockCoverPath = null; // pick up the current cover
         startLockScreenTicks();
         doubleClickHandler.removeCallbacks(singleClickRunnable);
+        blankScreen();
+    }
+
+    // Turns the display off - for real, or with the black overlay ("fake off") while something has to keep
+    // the CPU awake (radio, web server, video). Also used by a short press of Center while locked.
+    private void blankScreen() {
         com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
         // 🚀 [웹 서버 방어막] 라디오뿐만 아니라 서버가 돌아갈 때도 '가상 암전 모드'를 사용하여 CPU가 잠들지 않게 보호합니다!
         if (fm.isPowerUp || activePlayer == 1 || isServerRunning || currentScreenState == STATE_VIDEO_PLAYER) {
@@ -3751,6 +3762,9 @@ public class MainActivity extends Activity {
                         && currentPlaylist.get(currentIndex).exists()) {
                     com.themoon.y1.managers.PlaybackStateStore.saveProgress(MainActivity.this, currentIndex,
                             am.getCurrentPosition(), true);
+                    WatchdogReceiver.arm(MainActivity.this);
+                } else {
+                    WatchdogReceiver.disarm(MainActivity.this);
                 }
             } catch (Exception e) {
             }
@@ -3763,7 +3777,8 @@ public class MainActivity extends Activity {
     // - on any other fresh start (power on, reinstall...), loaded but paused, so Now Playing and the
     //   play button pick up where the user left off.
     private void restorePlaybackOnStart() {
-        boolean afterCrash = com.themoon.y1.managers.PlaybackStateStore.consumeResumeAfterCrash(this);
+        boolean afterCrash = com.themoon.y1.managers.PlaybackStateStore.consumeResumeAfterCrash(this)
+                | com.themoon.y1.managers.PlaybackStateStore.diedWhilePlaying(this);
         com.themoon.y1.managers.PlaybackStateStore.State state = com.themoon.y1.managers.PlaybackStateStore.load(this);
         if (state == null) return;
         com.themoon.y1.managers.AudioPlayerManager apm = com.themoon.y1.managers.AudioPlayerManager.getInstance();
@@ -15574,10 +15589,13 @@ public class MainActivity extends Activity {
         if (event.getAction() == KeyEvent.ACTION_DOWN && !centerGestureDown) {
             centerGestureDown = true;
             if (!inputLocked) resetBacklightTimer();
+            else lockedPressWithScreenOn = isDisplayReallyOn() && (event.getFlags() & KeyEvent.FLAG_WOKE_HERE) == 0
+                    && System.currentTimeMillis() - lastScreenOnTime > 500;
             centerGestureHandled = false;
             centerGestureHandler.postDelayed(centerHoldAction, 800);
         } else if (event.getAction() == KeyEvent.ACTION_UP) {
             centerGestureHandler.removeCallbacks(centerHoldAction);
+            boolean handledHold = centerGestureHandled;
             boolean click = centerGestureDown && !centerGestureHandled && !inputLocked && !event.isCanceled();
             centerGestureDown = false;
             centerGestureHandled = false;
@@ -15589,11 +15607,50 @@ public class MainActivity extends Activity {
                 } else {
                     handleCenterShortClick();
                 }
-            } else if (inputLocked) {
-                Toast.makeText(this, t("Locked — hold Center to unlock"), Toast.LENGTH_SHORT).show();
+            } else if (inputLocked && !event.isCanceled() && !handledHold) {
+                // 🚀 [Lock] A short press while locked switches the display on or off, like the power
+                // button; holding Center (centerHoldAction) unlocks.
+                if (lockedPressWithScreenOn && System.currentTimeMillis() - lastScreenOnTime > 1000) {
+                    blankScreen();
+                } else {
+                    wakeWhileLocked();
+                }
             }
         }
         return true;
+    }
+
+    private boolean lockedPressWithScreenOn;
+
+    private boolean isDisplayReallyOn() {
+        if (isFakeScreenOff) return false;
+        try {
+            return ((PowerManager) getSystemService(Context.POWER_SERVICE)).isScreenOn();
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    // Shows the lock screen again without unlocking.
+    private void wakeWhileLocked() {
+        if (isFakeScreenOff) {
+            wakeFromFakeScreenOff();
+        } else if (!isDisplayReallyOn()) {
+            try {
+                Runtime.getRuntime().exec(new String[] { "su", "-c", "input keyevent 26" });
+            } catch (Exception e) {
+            }
+        }
+        lastScreenOnTime = System.currentTimeMillis();
+        // Goes off again by itself (in a pocket "never" would drain the battery: 10 s then).
+        backlightHandler.removeCallbacks(backlightTimeoutRunnable);
+        long ms = BACKLIGHT_TIMER_OPTIONS_MS[backlightTimerIndex];
+        backlightHandler.postDelayed(backlightTimeoutRunnable, ms > 0 ? ms : 10000);
+        if (lockScreenNotice != null) {
+            lockScreenNotice.setVisibility(View.VISIBLE);
+            lockScreenNotice.bringToFront();
+        }
+        refreshLockScreen();
     }
 
     @Override
