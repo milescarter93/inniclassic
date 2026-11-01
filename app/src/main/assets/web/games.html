@@ -911,6 +911,9 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 renderStatic(); renderList(); loadLibrary();
+// games/#snake opens that game (links from the store)
+function openFromHash() { const i = GAMES.findIndex(g => g.id === location.hash.slice(1)); if (i >= 0) openGame(i); }
+window.addEventListener('hashchange', openFromHash); openFromHash();
 requestAnimationFrame(loop);
 </script>
 </body>

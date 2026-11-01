@@ -1801,6 +1801,7 @@ public class MainActivity extends Activity {
 
         // 💡 테마 목록을 읽어오기 전, APK에 내장된 기본 제공 테마가 있다면 먼저 압축을 풀어 설치합니다!
         installBundledThemes();
+        migrateRenamedThemes();
 
         ThemeManager.loadThemesFromStorage(themeFolder);
         try {
@@ -4402,6 +4403,154 @@ public class MainActivity extends Activity {
             containerSettingsItems.addView(btn);
         }
         addBrokenThemeRows();
+        // 🚀 [Store] Last, so the rows above keep matching the theme indices (closeThemePreview relies on it).
+        LinearLayout store = createSettingRow("Get More Themes", "›");
+        store.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildThemeStoreUI();
+            }
+        });
+        containerSettingsItems.addView(store);
+    }
+
+    // 🚀 [Themes] "Y1 Claude Edition" became "Claudoasis" (1.4.5-fork62). The old unpacked copies would be
+    // listed next to the new ones, so they go once the new ones are there, and a user who had picked one
+    // keeps it under its new name.
+    private void migrateRenamedThemes() {
+        String[][] renames = { { "Y1 Claude Edition", "Claudoasis" }, { "Y1 Claude Edition (Dark)", "Claudoasis (Dark)" } };
+        File dir = new File("/storage/sdcard0/Y1_Themes");
+        String saved = prefs.getString("app_theme_name", null);
+        for (String[] r : renames) {
+            File old = new File(dir, r[0]);
+            if (old.isDirectory() && new File(new File(dir, r[1]), "config.json").isFile()) deleteTree(old);
+            if (r[0].equals(saved)) prefs.edit().putString("app_theme_name", r[1]).commit();
+        }
+    }
+
+    private static void deleteTree(File f) {
+        File[] children = f.listFiles();
+        if (children != null) for (File c : children) deleteTree(c);
+        f.delete();
+    }
+
+    // =======================================================
+    // 🚀 [Store] Get More Themes: the catalog on the fork's site (managers/ThemeStore). A theme that isn't
+    // installed (or has a newer version) is downloaded with Center and opens in the preview, where Center
+    // applies it; an installed one opens in the preview straight away.
+    // =======================================================
+    private Object themeStoreToken;
+    private boolean themeStoreBusy;
+
+    private void buildThemeStoreUI() {
+        setSettingsDepth(2);
+        settingsDepth2Back = this::backToThemeListFromStore;
+        settingsRowLabel = t("Theme Store");
+        updateStatusBarTitle();
+        containerSettingsItems.removeAllViews();
+        final LinearLayout loading = createSettingRow("Loading...", "");
+        containerSettingsItems.addView(loading);
+        loading.requestFocus();
+        final Object token = new Object();
+        themeStoreToken = token;
+        new Thread(() -> {
+            List<com.themoon.y1.managers.ThemeStore.Item> found = null;
+            try {
+                found = com.themoon.y1.managers.ThemeStore.themes(this);
+            } catch (Exception e) {
+                android.util.Log.w("Y1Store", "Catalog failed", e);
+            }
+            final List<com.themoon.y1.managers.ThemeStore.Item> items = found;
+            runOnUiThread(() -> {
+                if (themeStoreToken != token || !onThemeStorePage()) return;
+                if (items == null) {
+                    ((TextView) loading.getChildAt(0)).setText(t("Couldn't connect. Is Wi-Fi on?"));
+                    return;
+                }
+                renderThemeStore(items, 0);
+            });
+        }, "Y1ThemeStore").start();
+    }
+
+    // Back on the theme list with its own title, on the "Get More Themes" row (its last row).
+    private void backToThemeListFromStore() {
+        settingsRowLabel = t("Theme");
+        buildThemeSelectorUI();
+        View last = containerSettingsItems.getChildAt(containerSettingsItems.getChildCount() - 1);
+        if (last != null) last.requestFocus();
+    }
+
+    private boolean onThemeStorePage() {
+        return currentScreenState == STATE_SETTINGS && currentSettingsDepth == 2 && t("Theme Store").equals(settingsRowLabel);
+    }
+
+    private void renderThemeStore(final List<com.themoon.y1.managers.ThemeStore.Item> items, int focus) {
+        containerSettingsItems.removeAllViews();
+        if (items.isEmpty()) containerSettingsItems.addView(createSettingRow("No themes in the store yet.", ""));
+        for (int i = 0; i < items.size(); i++) {
+            final com.themoon.y1.managers.ThemeStore.Item it = items.get(i);
+            final int index = i;
+            final boolean installed = com.themoon.y1.managers.ThemeStore.isInstalled(it);
+            final boolean update = com.themoon.y1.managers.ThemeStore.hasUpdate(this, it);
+            String state = update ? t("Update") : installed ? t("Installed")
+                    : (it.size >= 1024 * 1024 ? String.format(Locale.US, "%.1f MB", it.size / 1048576f)
+                            : Math.max(1, it.size / 1024) + " KB");
+            final LinearLayout row = createSettingRow("", state);
+            ((TextView) row.getChildAt(0)).setText((installed && !update ? "✓ " : "") + it.name);
+            row.setOnClickListener(v -> {
+                clickFeedback();
+                if (installed && !update) openStoreThemePreview(it);
+                else installStoreTheme(items, index, row);
+            });
+            containerSettingsItems.addView(row);
+        }
+        // where to look at the store (and its games) on a computer
+        containerSettingsItems.addView(createSettingRow("Web",
+                com.themoon.y1.managers.ThemeStore.baseUrl(this).replaceFirst("^https?://", "").replaceAll("/$", "")));
+        View f = containerSettingsItems.getChildAt(Math.min(focus, containerSettingsItems.getChildCount() - 1));
+        if (f != null) f.requestFocus();
+    }
+
+    private void installStoreTheme(final List<com.themoon.y1.managers.ThemeStore.Item> items, final int index,
+            final LinearLayout row) {
+        if (themeStoreBusy) return;
+        themeStoreBusy = true;
+        final com.themoon.y1.managers.ThemeStore.Item it = items.get(index);
+        final TextView right = (TextView) row.getChildAt(1);
+        right.setText("0%");
+        final Object token = themeStoreToken;
+        new Thread(() -> {
+            String error = null;
+            try {
+                com.themoon.y1.managers.ThemeStore.install(this, it, pct -> runOnUiThread(() -> right.setText(pct + "%")));
+            } catch (com.themoon.y1.managers.ThemeStore.DamagedException e) {
+                error = t("The download was damaged. Try again.");
+            } catch (Exception e) {
+                android.util.Log.w("Y1Store", "Install failed: " + it.name, e);
+                error = t("Couldn't connect. Is Wi-Fi on?");
+            }
+            final String err = error;
+            runOnUiThread(() -> {
+                themeStoreBusy = false;
+                boolean here = themeStoreToken == token && onThemeStorePage();
+                if (err != null) {
+                    Toast.makeText(this, err, Toast.LENGTH_LONG).show();
+                    if (here) renderThemeStore(items, index);
+                    return;
+                }
+                if (here) openStoreThemePreview(it);
+                else Toast.makeText(this, t("Theme installed:") + " " + it.name, Toast.LENGTH_SHORT).show();
+            });
+        }, "Y1ThemeInstall").start();
+    }
+
+    // Back on the theme list (which rescans Y1_Themes and so unpacks a new zip), then the preview of it.
+    private void openStoreThemePreview(com.themoon.y1.managers.ThemeStore.Item it) {
+        settingsRowLabel = t("Theme");
+        buildThemeSelectorUI();
+        int index = ThemeManager.findThemeIndexByName(it.name);
+        if (index >= 0) showThemePreview(index);
     }
 
     // Applies the theme at this index of availableThemes and redraws the app (the music keeps playing).

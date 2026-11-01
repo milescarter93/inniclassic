@@ -853,5 +853,13 @@
   "Shortcuts: Backspace goes up a folder · Ctrl/Shift+click selects several · Ctrl+A selects all · Delete deletes the selection · Esc clears it": "Atajos: Retroceso sube una carpeta · Ctrl/Mayús+clic selecciona varios · Ctrl+A selecciona todo · Supr borra la selección · Esc la quita",
   "The Y1 will add them to its library in a few seconds.": "El Y1 los añadirá a su biblioteca en unos segundos.",
   "Turn Scrobbling Off": "Desactivar el envío",
-  "Turn Scrobbling On": "Activar el envío"
+  "Turn Scrobbling On": "Activar el envío",
+  "Get More Themes": "Descargar más temas",
+  "Theme Store": "Tienda de temas",
+  "Installed": "Instalado",
+  "Update": "Actualizar",
+  "No themes in the store yet.": "Todavía no hay temas en la tienda.",
+  "The download was damaged. Try again.": "La descarga llegó dañada. Vuelve a intentarlo.",
+  "Web": "Web",
+  "Theme installed:": "Tema instalado:"
 }
