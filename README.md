@@ -18,3 +18,10 @@ from this `gh-pages` branch: https://milescarter93.github.io/inniclassic/
 3. Commit and push this branch.
 
 Free, non-commercial fan project (same license as the original project). Not affiliated with Innioasis, Apple or Anthropic. "Claudoasis" is an unofficial theme inspired by Claude, not affiliated with Anthropic.
+
+## Publishing a New Oasis update
+
+`output-metadata.json` is what the Y1 checks in Settings → System → Software Update. To offer a new version:
+set `versionCode` / `versionName` to the new build's, `outputFile` to the APK's full HTTPS address (for
+example the asset of a GitHub release) and `sha256` to the APK's SHA-256. The Y1 only installs an APK whose
+SHA-256 matches; with `outputFile` empty nothing is offered.
