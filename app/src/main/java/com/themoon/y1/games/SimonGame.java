@@ -56,7 +56,7 @@ public class SimonGame extends GameView {
         showIndex = 0;
         timer = 0;
         waitBeforeShow = 0.7f;
-        lit = -1;
+        if (litTimer <= 0) lit = -1; // the last press of the round stays lit for its quarter second
     }
 
     private float onTime() {
@@ -67,7 +67,7 @@ public class SimonGame extends GameView {
     protected void update(float dt) {
         if (litTimer > 0) {
             litTimer -= dt;
-            if (litTimer <= 0 && !showing) lit = -1;
+            if (litTimer <= 0 && (!showing || waitBeforeShow > 0)) lit = -1;
         }
         if (!showing) return;
         if (waitBeforeShow > 0) {

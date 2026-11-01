@@ -226,10 +226,10 @@ class Game {
     if (this.state === PAUSED) { host.feedback(); this.state = PLAYING; this.onResume && this.onResume(); }
     else if (this.cannotPlay() == null) {
       host.feedback();
-      if (this.state === OVER) this.reset();
+      if (this.state === OVER) { this.reset(); this.state = READY; }
       this.score = 0; this.newRecord = false;
       this.onStarted();
-      if (this.state !== OVER) this.state = PLAYING;
+      if (this.state !== OVER) this.state = PLAYING; // onStarted may end it at once (e.g. a library with one year)
     }
   }
   pause() { if (this.state !== PLAYING) return; this.state = PAUSED; this.onPause(); }
@@ -378,10 +378,10 @@ class Simon extends Game {
   instructions() { return [t('Watch the sequence, then repeat it'), t('with Previous, Next, Play/Pause and Center.')]; }
   reset() { this.seq = []; this.showing = false; this.lit = -1; this.litTimer = 0; }
   onStarted() { this.seq = []; this.nextRound(); }
-  nextRound() { this.seq.push(rnd(4)); this.showing = true; this.timer = 0; this.wait = 0.7; this.lit = -1; }
+  nextRound() { this.seq.push(rnd(4)); this.showing = true; this.timer = 0; this.wait = 0.7; if (!(this.litTimer > 0)) this.lit = -1; } // the last press stays lit
   onTime() { return Math.max(0.22, 0.5 - this.seq.length * 0.02); }
   update(dt) {
-    if (this.litTimer > 0) { this.litTimer -= dt; if (this.litTimer <= 0 && !this.showing) this.lit = -1; }
+    if (this.litTimer > 0) { this.litTimer -= dt; if (this.litTimer <= 0 && (!this.showing || this.wait > 0)) this.lit = -1; }
     if (!this.showing) return;
     if (this.wait > 0) { this.wait -= dt; return; }
     this.timer += dt;
