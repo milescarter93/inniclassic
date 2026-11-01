@@ -6,7 +6,7 @@ import android.graphics.Paint;
 
 import java.util.Random;
 
-// 🚀 [Games] Blocks (falling-block puzzle): the wheel moves the piece, Center turns it, Previous turns
+// 🚀 [Games] Block Puzzle (falling blocks): the wheel moves the piece, Center turns it, Previous turns
 // it the other way, Next drops it and Play/Pause moves it down one row. Full rows clear; every 10 rows
 // the level - and the speed - goes up.
 public class BlocksGame extends GameView {
@@ -21,7 +21,8 @@ public class BlocksGame extends GameView {
             { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } },
             { { 2, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } } };
     private static final int[] BOX = { 4, 2, 3, 3, 3, 3, 3 };
-    private static final int[] COLORS = { 0xFF64D2FF, 0xFFFFD60A, 0xFFBF5AF2, 0xFF30D158, 0xFFFF453A, 0xFF0A84FF, 0xFFFF9F0A };
+    // turquoise, sand, lilac, palm green, coral, deep water, terracotta
+    private static final int[] COLORS = { 0xFF2EC4B6, 0xFFF2B544, 0xFF9B7FE6, 0xFF5BBF6A, 0xFFFF7A5C, 0xFF3D7BD9, 0xFFD9814A };
     private final int[][] board = new int[H][W]; // 0 empty, else colour index + 1
     private final Random random = new Random();
     private int piece, next, rot, px, py, lines, level;
@@ -163,7 +164,12 @@ public class BlocksGame extends GameView {
 
     private void drawCell(Canvas c, float x, float y, int colour) {
         paint.setColor(colour);
-        roundRect(c, x + dp, y + dp, x + cell - dp, y + cell - dp, 2 * dp, paint);
+        roundRect(c, x + dp, y + dp, x + cell - dp, y + cell - dp, cell * 0.32f, paint);
+        // a soft highlight: rounded "pebbles" rather than flat tiles
+        if ((colour >>> 24) == 0xFF) {
+            paint.setColor(0x40FFFFFF);
+            c.drawCircle(x + cell * 0.36f, y + cell * 0.34f, cell * 0.14f, paint);
+        }
     }
 
     @Override

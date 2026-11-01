@@ -11,12 +11,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-// 🚀 [Games] Simon on the click wheel itself: the wheel is drawn on screen and its buttons are the
+// 🚀 [Games] Wheel Says - a colour-memory game on the click wheel itself: the wheel is drawn on screen and its buttons are the
 // colours - Previous (left), Next (right), Play/Pause (bottom) and Center. Watch the sequence, then
 // repeat it; every round adds one more. The top of the wheel (Back) pauses.
 public class SimonGame extends GameView {
     private static final int CENTER = 0, RIGHT = 1, BOTTOM = 2, LEFT = 3;
-    private static final int[] COLORS = { 0xFF30D158, 0xFF0A84FF, 0xFFFFD60A, 0xFFFF453A };
+    // center turquoise, right lilac, bottom gold, left coral: the oasis palette (not the classic toy's)
+    private static final int[] COLORS = { 0xFF2EC4B6, 0xFF9B7FE6, 0xFFF2B544, 0xFFFF7A5C };
     private final List<Integer> sequence = new ArrayList<>();
     private final Random random = new Random();
     private boolean showing;

@@ -5578,7 +5578,7 @@ public class MainActivity extends Activity {
         } else if (currentScreenState == STATE_WIFI) {
             title = t("Wi-Fi");
         } else if (currentScreenState == STATE_MUSIC_QUIZ) {
-            title = t("Music Quiz");
+            title = "Music Quiz";
         } else if (currentScreenState == STATE_VIDEOS) {
             title = t("Videos");
         } else if (currentScreenState == STATE_MENU) {
@@ -20797,7 +20797,9 @@ public class MainActivity extends Activity {
     // score. A game runs full screen under the status bar and takes every key while it's shown.
     // =======================================================
     private static final String[] GAME_IDS = { "bricks", "snake", "simon", "blocks", "flappy", "older" };
-    private static final String[] GAME_NAMES = { "Bricks", "Snake", "Simon", "Blocks", "Flappy", "Which Came First?" };
+    // The games keep these English names in every language (they're names, not descriptions); the ids stay
+    // as they were so the best scores carry over.
+    private static final String[] GAME_NAMES = { "Bricks", "Snake", "Wheel Says", "Block Puzzle", "Birdy", "Which Came First?" };
     private FrameLayout gameOverlay;
     private com.themoon.y1.games.GameView gameView;
     private String gameTitle;
@@ -20807,7 +20809,8 @@ public class MainActivity extends Activity {
     private void buildGamesUI() {
         setSettingsDepth(1);
         containerSettingsItems.removeAllViews();
-        final LinearLayout quiz = createSettingRow("Music Quiz", "›");
+        final LinearLayout quiz = createSettingRow("", "›");
+        ((TextView) quiz.getChildAt(0)).setText("Music Quiz");
         quiz.setOnClickListener(v -> {
             clickFeedback();
             gamesFocus = 0;
@@ -20818,8 +20821,9 @@ public class MainActivity extends Activity {
         for (int i = 0; i < GAME_IDS.length; i++) {
             final int game = i;
             int best = prefs.getInt("game_best_" + GAME_IDS[i], 0);
-            final LinearLayout row = createSettingRow(GAME_NAMES[i],
+            final LinearLayout row = createSettingRow("",
                     best > 0 ? String.format(t("Best: %d"), best) + "  ›" : "›");
+            ((TextView) row.getChildAt(0)).setText(GAME_NAMES[i]);
             row.setOnClickListener(v -> {
                 clickFeedback();
                 gamesFocus = containerSettingsItems.indexOfChild(row);
@@ -20895,7 +20899,7 @@ public class MainActivity extends Activity {
         gameOverlay.setLayoutParams(lp);
         gameOverlay.setVisibility(View.VISIBLE);
         gameOverlay.bringToFront();
-        gameTitle = t(GAME_NAMES[index]);
+        gameTitle = GAME_NAMES[index];
         updateStatusBarTitle();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         android.util.Log.i("Y1Games", "Start " + id);
