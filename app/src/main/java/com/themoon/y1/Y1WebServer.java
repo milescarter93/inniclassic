@@ -647,6 +647,9 @@ public class Y1WebServer extends Thread {
                     }
                 }
                 // 8️⃣ [Last.fm] 로그인 페이지 (PC 브라우저에서 편하게 아이디/비번 입력용)
+                else if (method.equals("GET") && path.equals("/games")) {
+                    sendPage(os, "web/games.html");
+                }
                 else if (method.equals("GET") && path.equals("/lastfm")) {
                     sendPage(os, "web/lastfm.html");
                 }

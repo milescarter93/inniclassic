@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Y1 · Juegos</title>
+<style>
+  :root{--bg:#17171C;--panel:#212129;--panel2:#2A2A34;--line:#33333F;--text:#E8E8EE;--dim:#9A9AAA;--accent:#B39DDB}
+  html,body{height:100%}
+  body{margin:0;font-family:'Segoe UI','Roboto',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  a{color:var(--accent);text-decoration:none}
+  .top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:0 20px;height:56px;background:#1C1C23;border-bottom:1px solid var(--line)}
+  .brand{font-weight:700;font-size:17px;white-space:nowrap}
+  .brand span{color:var(--accent)}
+  .nav{display:flex;gap:4px;overflow-x:auto;flex:1;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav[hidden]{display:none}
+  .nav a{padding:8px 12px;border-radius:9px;color:var(--dim);white-space:nowrap;font-weight:500}
+  .nav a:hover,.nav a.on{background:var(--panel2);color:var(--text)}
+  .page{max-width:1100px;margin:0 auto;padding:24px 20px 60px;display:grid;grid-template-columns:minmax(0,520px) minmax(280px,1fr);gap:28px;align-items:start}
+  .dev{width:100%;min-width:0}
+  /* the Y1 */
+  .y1{width:100%;box-sizing:border-box;background:linear-gradient(160deg,#2E2E35,#1E1E23);border-radius:34px;padding:20px 20px 28px;box-shadow:0 20px 50px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.07)}
+  .screen{background:#000;border-radius:10px;padding:6px;box-shadow:inset 0 0 0 1px #000,0 0 0 1px #3A3A42}
+  canvas{display:block;width:100%;aspect-ratio:4/3;border-radius:4px;touch-action:manipulation;cursor:pointer}
+  .wheelbox{display:flex;justify-content:center;margin-top:22px}
+  svg.wheel{width:250px;max-width:70%;height:auto;touch-action:none;user-select:none;-webkit-user-select:none}
+  .wheel .ring{fill:#3A3A43;cursor:grab}
+  .wheel .ring.drag{cursor:grabbing}
+  .wheel .lbl{fill:#C9C9D2;font:700 15px 'Segoe UI',system-ui,sans-serif;pointer-events:none}
+  .wheel .ico{fill:#C9C9D2;pointer-events:none}
+  .wheel .center{fill:#26262C;stroke:#4A4A55;stroke-width:1.5;cursor:pointer}
+  .wheel .hit{fill:rgba(255,255,255,.10);pointer-events:none;opacity:0;transition:opacity .12s}
+  .wheel .hit.on{opacity:1}
+  /* side panel */
+  h2{margin:0 0 4px;font-size:22px;font-weight:600}
+  .note{color:var(--dim);margin:0 0 18px;line-height:1.5}
+  .box{background:var(--panel);border-radius:16px;padding:16px 18px;margin:0 0 14px}
+  .box h3{margin:0 0 10px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .games{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .games button{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;color:var(--text);background:var(--panel2);border:1px solid transparent;border-radius:12px;padding:10px 12px;cursor:pointer}
+  .games button:hover{border-color:var(--line)}
+  .games button.on{border-color:var(--accent)}
+  .games .em{font-size:20px}
+  .games small{display:block;color:var(--dim);font-size:12px;margin-top:1px}
+  table.keys{width:100%;border-collapse:collapse}
+  .keys td{padding:5px 0;vertical-align:top}
+  .keys td:first-child{width:46%;color:var(--dim)}
+  kbd{display:inline-block;min-width:16px;text-align:center;font:600 12px 'Segoe UI',system-ui,sans-serif;background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 6px;margin:1px 2px 1px 0;color:var(--text)}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0}
+  select{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 8px}
+  label.chk{display:flex;align-items:center;gap:8px;cursor:pointer}
+  .musicnote{color:var(--dim);font-size:13px;line-height:1.5;margin:8px 0 0}
+  .musicnote.ok{color:#81C784}
+  @media (max-width:900px){.page{grid-template-columns:minmax(0,1fr);justify-items:center}.dev,.side{width:100%;max-width:520px}}
+  @media (max-width:760px){.top{padding:0 12px;gap:10px;height:52px}.page{padding:14px 12px 60px}.y1{padding:12px 12px 20px;border-radius:24px}}
+</style>
+</head>
+<body>
+<div class="top"><div class="brand">Y1 <span>InniClassic</span></div><nav class="nav" id="nav" hidden>
+  <a href="/" data-t="Files">📁 Files</a><a href="/library" data-t="Library & Playlists">📚 Library & Playlists</a>
+  <a href="/media" data-t="Podcasts & Audiobooks">🎙️ Podcasts & Audiobooks</a><a href="/lastfm">🎧 Last.fm</a>
+  <a class="on" href="/games" data-t="Games">🎮 Games</a></nav></div>
+<div class="page">
+  <div class="dev">
+    <div class="y1">
+      <div class="screen"><canvas id="cv" width="480" height="360" aria-label="Y1"></canvas></div>
+      <div class="wheelbox">
+        <svg class="wheel" id="wheel" viewBox="0 0 260 260" aria-label="Click wheel">
+          <circle class="ring" id="ring" cx="130" cy="130" r="126"/>
+          <path class="hit" id="hit"/>
+          <text class="lbl" x="130" y="36" text-anchor="middle" data-t="MENU">MENU</text>
+          <g class="ico" transform="translate(222,130)"><path d="M-12,-8 L-2,0 L-12,8Z M-3,-8 L7,0 L-3,8Z"/><rect x="7" y="-8" width="3" height="16"/></g>
+          <g class="ico" transform="translate(38,130)"><path d="M12,-8 L2,0 L12,8Z M3,-8 L-7,0 L3,8Z"/><rect x="-10" y="-8" width="3" height="16"/></g>
+          <g class="ico" transform="translate(130,222)"><path d="M-11,-8 L-2,0 L-11,8Z"/><rect x="1" y="-8" width="3" height="16"/><rect x="7" y="-8" width="3" height="16"/></g>
+          <circle class="center" id="centerBtn" cx="130" cy="130" r="46"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+  <div class="side">
+    <h2 data-t="Games">Games</h2>
+    <p class="note" id="intro"></p>
+    <div class="box"><div class="games" id="list"></div>
+      <p class="musicnote" id="musicNote"></p></div>
+    <div class="box"><h3 data-t="Controls">Controls</h3><table class="keys" id="keys"></table></div>
+    <div class="box"><h3 data-t="Options">Options</h3>
+      <div class="row"><span data-t="Colours">Colours</span><select id="palette"></select></div>
+      <div class="row"><label class="chk"><input type="checkbox" id="sound" checked> <span data-t="Click sound">Click sound</span></label></div>
+    </div>
+  </div>
+</div>
+<script>
+'use strict';
+// ───────────────────────── language ─────────────────────────
+// The same English keys as the Y1 app (assets/languages/spanish.json), so the wording matches the device.
+const ES = {
+  "Games":"Juegos","Music Quiz":"Quiz musical","Bricks":"Ladrillos","Snake":"Serpiente","Simon":"Simón","Blocks":"Bloques","Flappy":"Flappy",
+  "Which Came First?":"¿Cuál salió antes?","Paused":"En pausa","Center: resume":"Central: seguir","Back: leave":"Atrás: salir",
+  "Game Over":"Fin de la partida","Score: %d":"Puntos: %d","New record!":"¡Nuevo récord!","Best: %d":"Récord: %d",
+  "Center: play again":"Central: jugar otra vez","Center: start":"Central: iniciar","Wheel: move the paddle":"Rueda: mover la pala",
+  "Center: launch the ball":"Central: lanzar la bola","Level %d":"Nivel %d","Wheel: turn left / right":"Rueda: girar a izquierda o derecha",
+  "Eat to grow; avoid the walls and yourself.":"Come para crecer; no choques con las paredes ni contigo.",
+  "Watch the sequence, then repeat it":"Mira la secuencia y repítela","with Previous, Next, Play/Pause and Center.":"con Retroceder, Adelante, Reproducir/Pausa y Central.",
+  "Watch...":"Mira...","Your turn":"Tu turno","Round %d":"Ronda %d","MENU":"MENÚ","Wheel: move  ·  Center: turn":"Rueda: mover  ·  Central: girar",
+  "Next: drop  ·  Play/Pause: down":"Adelante: soltar  ·  Reproducir/Pausa: bajar","Next":"Siguiente","Score":"Puntos","Lines":"Líneas","Level":"Nivel","Best":"Récord",
+  "Center: flap":"Central: aletear","Fly through the gaps between the pipes.":"Pasa volando por los huecos entre los tubos.",
+  "Which song came out first?":"¿Qué canción salió antes?","Wheel: choose  ·  Center: answer":"Rueda: elegir  ·  Central: responder",
+  "Your songs need a year in their tags to play this.":"Para jugar, tus canciones necesitan el año en las etiquetas.",
+  "Right!":"¡Correcto!","Wrong!":"¡Fallo!","Which one came out first?":"¿Cuál salió antes?",
+  "Which artist released %s?":"¿Qué artista publicó %s?","Which album is %s from?":"¿De qué álbum es %s?","What year was %s released?":"¿En qué año se publicó %s?",
+  "What genre is %s?":"¿De qué género es %s?","Which cover matches this song's album?":"¿Qué portada es la del álbum de esta canción?",
+  "What song is playing?":"¿Qué canción está sonando?","Correct!":"¡Correcto!","It was: ":"Era: ","Round %d Complete!":"¡Ronda %d completada!",
+  "Not enough songs in your library for Music Quiz.":"No hay suficientes canciones en tu biblioteca para el Quiz musical.",
+  "You beat all 5 rounds!":"¡Has superado las 5 rondas!","Game Over!":"¡Fin del juego!","Continue":"Continuar",
+  "Files":"Archivos","Library & Playlists":"Biblioteca y listas","Podcasts & Audiobooks":"Podcasts y audiolibros",
+  // only on this page
+  "Controls":"Controles","Options":"Opciones","Colours":"Colores","Click sound":"Sonido de clic",
+  "Listen to the clip and pick the answer":"Escucha el fragmento y elige la respuesta","5 rounds of 8 questions, 3 lives.":"5 rondas de 8 preguntas, 3 vidas.",
+  "Open this page from the Y1's web server to play with your music.":"Abre esta página desde el servidor web del Y1 para jugar con tu música.",
+  "Loading your music...":"Cargando tu música...","Playing with your Y1's music (%d songs).":"Jugando con la música de tu Y1 (%d canciones).",
+  "The music games use your Y1's songs: open this page from its web server.":"Los juegos de música usan las canciones de tu Y1: abre esta página desde su servidor web.",
+  "Couldn't load the Y1's library.":"No se pudo cargar la biblioteca del Y1.",
+  "Web versions of InniClassic's mini-games, to try them on the computer. They play like on the Y1: same rules, same buttons.":
+    "Versiones web de los minijuegos de InniClassic para probarlos en el ordenador. Se juegan como en el Y1: mismas reglas, mismos botones.",
+  "Wheel":"Rueda","Center button":"Botón central","Back (MENU)":"Atrás (MENÚ)","Previous":"Retroceder","Play/Pause":"Reproducir/Pausa",
+  "or spin the wheel / mouse wheel":"o gira la rueda / rueda del ratón","or click the screen":"o haz clic en la pantalla",
+  "Dark":"Oscuro","Claude (dark)":"Claude (oscuro)","Claude (light)":"Claude (claro)","iPod (light)":"iPod (claro)",
+  "Loading...":"Cargando...","Record":"Récord","Choose a game with the wheel":"Elige un juego con la rueda"
+};
+const LANG_ES = /^es\b/i.test(navigator.language || 'es');
+const t = s => (LANG_ES && ES[s]) || s;
+const fmt = (s, ...a) => { let i = 0; return t(s).replace(/%[ds]/g, () => a[i++]); };
+
+// ───────────────────────── storage (best scores, options) ─────────────────────────
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('y1games_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('y1games_' + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+// ───────────────────────── palettes (the game's theme colours) ─────────────────────────
+const SANS = "'Segoe UI','Roboto',system-ui,sans-serif", SERIF = "'Droid Serif',Georgia,'Times New Roman',serif";
+const PALETTES = {
+  dark:   { name: 'Dark',          bg: '#1E1E22', text: '#F2F2F7', text2: '#98989D', accent: '#2588DC', font: SANS },
+  claude: { name: 'Claude (dark)', bg: '#262624', text: '#F5F4EE', text2: '#A6A39A', accent: '#C6613F', font: SERIF },
+  cream:  { name: 'Claude (light)',bg: '#F5F4EE', text: '#2B2A27', text2: '#7A776E', accent: '#C6613F', font: SERIF },
+  ipod:   { name: 'iPod (light)',  bg: '#FFFFFF', text: '#111111', text2: '#6D6D72', accent: '#2F7BE0', font: SANS }
+};
+let P = PALETTES[store.get('palette', 'dark')] || PALETTES.dark;
+
+// ───────────────────────── canvas ─────────────────────────
+const W = 480, H = 360;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+function fitCanvas() {
+  const k = Math.max(1, Math.min(3, (cv.clientWidth / W) * (window.devicePixelRatio || 1)));
+  if (cv.width !== Math.round(W * k)) { cv.width = Math.round(W * k); cv.height = Math.round(H * k); }
+  ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+}
+const font = (size, bold) => (bold ? '700 ' : '400 ') + size + 'px ' + P.font;
+function rr(x, y, w, h, r) { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); }
+function fillRR(l, t_, r, b, rad, col) { ctx.fillStyle = col; rr(l, t_, r - l, b - t_, Math.max(0, Math.min(rad, (r - l) / 2, (b - t_) / 2))); ctx.fill(); }
+function circle(x, y, r, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+function txt(s, x, y, size, col, bold, align) { ctx.font = font(size, bold); ctx.fillStyle = col; ctx.textAlign = align || 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText(s, x, y); }
+function ellipsize(s, size, bold, max) {
+  ctx.font = font(size, bold); s = s || '';
+  if (ctx.measureText(s).width <= max) return s;
+  while (s.length > 1 && ctx.measureText(s + '…').width > max) s = s.slice(0, -1);
+  return s + '…';
+}
+function hsv(h, s, v) { // → css colour
+  const f = n => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return `rgb(${Math.round(f(5) * 255)},${Math.round(f(3) * 255)},${Math.round(f(1) * 255)})`;
+}
+function alpha(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+const rnd = n => Math.floor(Math.random() * n);
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+// ───────────────────────── keys (the Y1's Android key codes) ─────────────────────────
+const K = { LEFT: 21, RIGHT: 22, CENTER: 23, ENTER: 66, BACK: 4, PREV: 88, NEXT: 87, PLAY: 85 };
+const isCenter = k => k === K.CENTER || k === K.ENTER;
+
+// ───────────────────────── host (what the app gives a game) ─────────────────────────
+let audioCtx = null;
+const host = {
+  t, best: id => (store.get('best', {})[id] || 0),
+  submitScore(id, score) {
+    const b = store.get('best', {});
+    if (score > (b[id] || 0)) { b[id] = score; store.set('best', b); renderList(); return true; }
+    return false;
+  },
+  feedback() { // the Y1's click
+    if (!document.getElementById('sound').checked) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain(), now = audioCtx.currentTime;
+      o.type = 'square'; o.frequency.value = 1800;
+      g.gain.setValueAtTime(0.05, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.018);
+      o.connect(g).connect(audioCtx.destination); o.start(now); o.stop(now + 0.02);
+    } catch (e) {}
+  },
+  exitGame() { closeGame(); },
+  library: () => LIB.songs || []
+};
+
+// ───────────────────────── GameView (base of every game) ─────────────────────────
+const READY = 0, PLAYING = 1, PAUSED = 2, OVER = 3;
+class Game {
+  constructor() { this.state = READY; this.score = 0; this.newRecord = false; this.reset(); }
+  cannotPlay() { return null; }
+  onStarted() {}
+  onPause() {}
+  onLeave() {}
+  overTitle() { return t('Game Over'); }
+  scoreText() { return fmt('Score: %d', this.score); }
+  bestText() { return fmt('Best: %d', host.best(this.id)); }
+  handleKey(key, repeat) {
+    if (key === K.BACK) {
+      if (repeat) return;
+      host.feedback();
+      if (this.state === PLAYING) this.pause(); else host.exitGame();
+      return;
+    }
+    if (this.state === PLAYING) { this.onGameKey(key, repeat); return; }
+    if (!isCenter(key) || repeat) return;
+    if (this.state === PAUSED) { host.feedback(); this.state = PLAYING; this.onResume && this.onResume(); }
+    else if (this.cannotPlay() == null) {
+      host.feedback();
+      if (this.state === OVER) this.reset();
+      this.score = 0; this.newRecord = false;
+      this.onStarted();
+      if (this.state !== OVER) this.state = PLAYING;
+    }
+  }
+  pause() { if (this.state !== PLAYING) return; this.state = PAUSED; this.onPause(); }
+  gameOver() { this.state = OVER; this.newRecord = host.submitScore(this.id, this.score); this.onPause(); }
+  click(x, y) { this.handleKey(K.CENTER, false); }
+  draw() {
+    ctx.fillStyle = P.bg; ctx.fillRect(0, 0, W, H);
+    this.drawGame();
+    if (this.state === PLAYING) return;
+    ctx.fillStyle = 'rgba(0,0,0,0.69)'; ctx.fillRect(0, 0, W, H);
+    let title, lines;
+    if (this.state === PAUSED) { title = t('Paused'); lines = [t('Center: resume'), t('Back: leave')]; }
+    else if (this.state === OVER) {
+      title = this.overTitle();
+      lines = [this.scoreText(), this.newRecord ? t('New record!') : this.bestText(), '', t('Center: play again'), t('Back: leave')];
+    } else {
+      title = ''; const reason = this.cannotPlay(), b = host.best(this.id);
+      lines = this.instructions().slice();
+      if (reason != null) lines.push(...wrap(reason, 16, 440));
+      else lines.push(b > 0 ? this.bestText() : '', '', t('Center: start'));
+    }
+    const titleSize = 30, lineSize = 16, gap = 6;
+    let total = (title ? titleSize + 10 : 0) + lines.length * (lineSize + gap), y = (H - total) / 2;
+    if (title) { y += titleSize; txt(ellipsize(title, titleSize, true, 460), W / 2, y, titleSize, '#FFFFFF', true, 'center'); y += 10; }
+    for (const line of lines) { y += lineSize; txt(line, W / 2, y, lineSize, line === t('New record!') ? '#FFD60A' : '#E6E6E6', false, 'center'); y += gap; }
+  }
+  hud(left, right) {
+    txt(left, 8, 17, 15, P.text, true, 'left');
+    if (right != null) txt(right, W - 8, 17, 15, P.text2, true, 'right');
+  }
+}
+function wrap(s, size, max) {
+  ctx.font = font(size, false); const out = []; let line = '';
+  for (const w of s.split(' ')) { const tryL = line ? line + ' ' + w : w; if (ctx.measureText(tryL).width > max && line) { out.push(line); line = w; } else line = tryL; }
+  if (line) out.push(line); return out;
+}
+
+// ───────────────────────── Bricks ─────────────────────────
+class Bricks extends Game {
+  get id() { return 'bricks'; }
+  instructions() { return [t('Wheel: move the paddle'), t('Center: launch the ball')]; }
+  reset() {
+    this.COLS = 8; this.ROWS = 5; this.margin = 8; this.wallTop = 26; this.brickTop = 46; this.brickH = 15;
+    this.brickW = (W - 16) / 8; this.paddleW = 76; this.paddleH = 8; this.paddleY = H - 22; this.paddleX = W / 2;
+    this.r = 6; this.lives = 3; this.level = 1; this.speed = 230; this.lastMove = 0; this.fill(); this.stuck = true;
+    this.ballX = this.paddleX; this.ballY = this.paddleY - this.r - 1;
+  }
+  fill() { this.bricks = Array.from({ length: 5 }, () => Array(8).fill(true)); }
+  onGameKey(key) {
+    if (key === K.LEFT || key === K.PREV || key === K.RIGHT || key === K.NEXT) {
+      const now = performance.now(), step = now - this.lastMove < 90 ? 34 : 20; this.lastMove = now;
+      this.paddleX = clamp(this.paddleX + (key === K.LEFT || key === K.PREV ? -step : step), this.paddleW / 2, W - this.paddleW / 2);
+    } else if (this.stuck && (isCenter(key) || key === K.PLAY)) {
+      this.stuck = false; const a = (-20 + Math.random() * 40) * Math.PI / 180;
+      this.vx = this.speed * Math.sin(a); this.vy = -this.speed * Math.cos(a);
+    }
+  }
+  update(dt) {
+    if (this.stuck) { this.ballX = this.paddleX; this.ballY = this.paddleY - this.r - 1; return; }
+    const steps = Math.ceil(this.speed * dt / 3);
+    for (let i = 0; i < steps && this.state === PLAYING && !this.stuck; i++) this.move(dt / steps);
+  }
+  move(dt) {
+    const r = this.r, px = this.ballX, py = this.ballY;
+    this.ballX += this.vx * dt; this.ballY += this.vy * dt;
+    if (this.ballX < r) { this.ballX = r; this.vx = Math.abs(this.vx); } else if (this.ballX > W - r) { this.ballX = W - r; this.vx = -Math.abs(this.vx); }
+    if (this.ballY < this.wallTop + r) { this.ballY = this.wallTop + r; this.vy = Math.abs(this.vy); }
+    if (this.vy > 0 && this.ballY + r >= this.paddleY && py + r <= this.paddleY + this.paddleH && Math.abs(this.ballX - this.paddleX) <= this.paddleW / 2 + r) {
+      const rel = clamp((this.ballX - this.paddleX) / (this.paddleW / 2), -1, 1), a = rel * 60 * Math.PI / 180;
+      this.vx = this.speed * Math.sin(a); this.vy = -this.speed * Math.cos(a); this.ballY = this.paddleY - r;
+    }
+    const col = Math.floor((this.ballX - this.margin) / this.brickW), row = Math.floor((this.ballY - this.brickTop) / this.brickH);
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      const rr_ = row + dr, cc = col + dc;
+      if (rr_ < 0 || rr_ >= this.ROWS || cc < 0 || cc >= this.COLS || !this.bricks[rr_][cc]) continue;
+      const l = this.margin + cc * this.brickW, tp = this.brickTop + rr_ * this.brickH;
+      if (this.ballX + r < l || this.ballX - r > l + this.brickW || this.ballY + r < tp || this.ballY - r > tp + this.brickH) continue;
+      this.bricks[rr_][cc] = false; this.score += (this.ROWS - rr_) * 10; host.feedback();
+      if (px + r <= l || px - r >= l + this.brickW) this.vx = -this.vx; else this.vy = -this.vy;
+      if (this.bricks.every(rw => rw.every(b => !b))) { this.level++; this.speed *= 1.12; this.fill(); this.stuck = true; }
+      return;
+    }
+    if (this.ballY - r > H) { this.lives--; if (this.lives <= 0) this.gameOver(); else this.stuck = true; }
+  }
+  drawGame() {
+    this.hud(fmt('Score: %d', this.score), fmt('Level %d', this.level));
+    for (let r_ = 0; r_ < 5; r_++) {
+      const col = hsv(r_ * 38, 0.75, 0.95);
+      for (let c = 0; c < 8; c++) if (this.bricks[r_][c]) {
+        const l = this.margin + c * this.brickW, tp = this.brickTop + r_ * this.brickH;
+        fillRR(l + 1, tp + 1, l + this.brickW - 1, tp + this.brickH - 1, 2, col);
+      }
+    }
+    fillRR(this.paddleX - this.paddleW / 2, this.paddleY, this.paddleX + this.paddleW / 2, this.paddleY + this.paddleH, this.paddleH / 2, P.accent);
+    circle(this.ballX, this.ballY, this.r, P.text);
+    for (let i = 0; i < this.lives; i++) circle(W - 12 - i * 14, 36, 4, P.text2);
+  }
+}
+
+// ───────────────────────── Snake ─────────────────────────
+class Snake extends Game {
+  get id() { return 'snake'; }
+  instructions() { return [t('Wheel: turn left / right'), t('Eat to grow; avoid the walls and yourself.')]; }
+  reset() {
+    this.cell = 16; this.top = 26; this.cols = Math.max(10, Math.floor(W / 16)); this.rows = Math.max(8, Math.floor((H - 26) / 16));
+    this.left = Math.floor((W - this.cols * 16) / 2);
+    const y = Math.floor(this.rows / 2); this.body = [];
+    for (let i = 0; i < 4; i++) this.body.push([Math.floor(this.cols / 3) - i, y]);
+    this.dir = 1; this.turns = []; this.acc = 0; this.stepTime = 0.14; this.placeFood();
+  }
+  placeFood() {
+    for (;;) { const x = rnd(this.cols), y = rnd(this.rows); if (!this.body.some(p => p[0] === x && p[1] === y)) { this.food = [x, y]; return; } }
+  }
+  onGameKey(key) {
+    const turn = key === K.LEFT || key === K.PREV ? -1 : key === K.RIGHT || key === K.NEXT ? 1 : 0;
+    if (!turn || this.turns.length >= 2) return;
+    const base = this.turns.length ? this.turns[this.turns.length - 1] : this.dir;
+    this.turns.push((base + turn + 4) % 4);
+  }
+  update(dt) { this.acc += dt; while (this.acc >= this.stepTime && this.state === PLAYING) { this.acc -= this.stepTime; this.step(); } }
+  step() {
+    if (this.turns.length) this.dir = this.turns.shift();
+    const h = this.body[0], nx = h[0] + (this.dir === 1 ? 1 : this.dir === 3 ? -1 : 0), ny = h[1] + (this.dir === 2 ? 1 : this.dir === 0 ? -1 : 0);
+    const eats = nx === this.food[0] && ny === this.food[1];
+    if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) { this.gameOver(); return; }
+    for (let i = 0; i < this.body.length - (eats ? 0 : 1); i++) if (this.body[i][0] === nx && this.body[i][1] === ny) { this.gameOver(); return; }
+    this.body.unshift([nx, ny]);
+    if (eats) { this.score++; host.feedback(); this.stepTime = Math.max(0.065, 0.14 - this.score * 0.0025); this.placeFood(); }
+    else this.body.pop();
+  }
+  drawGame() {
+    const c = this.cell;
+    this.hud(fmt('Score: %d', this.score), fmt('Best: %d', Math.max(this.score, host.best(this.id))));
+    ctx.strokeStyle = P.text2; ctx.lineWidth = 2; ctx.strokeRect(this.left - 1, this.top - 1, this.cols * c + 2, this.rows * c + 2);
+    circle(this.left + this.food[0] * c + c / 2, this.top + this.food[1] * c + c / 2, c * 0.42, '#FF453A');
+    for (let i = this.body.length - 1; i >= 0; i--) {
+      const p = this.body[i], x = this.left + p[0] * c, y = this.top + p[1] * c;
+      fillRR(x + 1, y + 1, x + c - 1, y + c - 1, c * 0.25, i === 0 ? P.accent : P.text);
+    }
+  }
+}
+
+// ───────────────────────── Simon ─────────────────────────
+class Simon extends Game {
+  get id() { return 'simon'; }
+  instructions() { return [t('Watch the sequence, then repeat it'), t('with Previous, Next, Play/Pause and Center.')]; }
+  reset() { this.seq = []; this.showing = false; this.lit = -1; this.litTimer = 0; }
+  onStarted() { this.seq = []; this.nextRound(); }
+  nextRound() { this.seq.push(rnd(4)); this.showing = true; this.timer = 0; this.wait = 0.7; this.lit = -1; }
+  onTime() { return Math.max(0.22, 0.5 - this.seq.length * 0.02); }
+  update(dt) {
+    if (this.litTimer > 0) { this.litTimer -= dt; if (this.litTimer <= 0 && !this.showing) this.lit = -1; }
+    if (!this.showing) return;
+    if (this.wait > 0) { this.wait -= dt; return; }
+    this.timer += dt;
+    const on = this.onTime(), off = on * 0.45, step = Math.floor(this.timer / (on + off));
+    if (step >= this.seq.length) { this.showing = false; this.lit = -1; this.input = 0; return; }
+    this.lit = this.timer - step * (on + off) < on ? this.seq[step] : -1;
+  }
+  onGameKey(key, repeat) {
+    if (this.showing || repeat) return;
+    const pad = isCenter(key) ? 0 : key === K.NEXT ? 1 : key === K.PLAY ? 2 : key === K.PREV ? 3 : -1;
+    if (pad < 0) return;
+    host.feedback(); this.lit = pad; this.litTimer = 0.25;
+    if (pad !== this.seq[this.input]) { this.gameOver(); return; }
+    if (++this.input === this.seq.length) { this.score = this.seq.length; this.nextRound(); }
+  }
+  geometry() { const cx = W / 2, cy = (H + 22) / 2, big = Math.min(W, H - 26) / 2 - 10; return { cx, cy, big, inner: big * 0.4 }; }
+  click(x, y) { // the wedges on screen are buttons too
+    if (this.state !== PLAYING) return super.click(x, y);
+    const g = this.geometry(), dx = x - g.cx, dy = y - g.cy, d = Math.hypot(dx, dy);
+    if (d <= g.inner) return this.handleKey(K.CENTER, false);
+    if (d > g.big) return;
+    const a = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360; // 0 = right, clockwise
+    this.handleKey(a < 45 || a >= 315 ? K.NEXT : a < 135 ? K.PLAY : a < 225 ? K.PREV : K.BACK, false);
+  }
+  drawGame() {
+    const COLORS = ['#30D158', '#0A84FF', '#FFD60A', '#FF453A'];
+    const shade = (c, on) => on ? c : (() => { const n = parseInt(c.slice(1), 16); return `rgb(${(n >> 16) * 0.38 | 0},${((n >> 8) & 255) * 0.38 | 0},${(n & 255) * 0.38 | 0})`; })();
+    const status = this.showing ? t('Watch...') : this.state === PLAYING ? t('Your turn') : '';
+    this.hud(fmt('Round %d', Math.max(1, this.seq.length)), status);
+    const { cx, cy, big, inner } = this.geometry();
+    const wedge = (start, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, big, start * Math.PI / 180, (start + 87) * Math.PI / 180); ctx.closePath(); ctx.fill(); };
+    [1, 2, 3].forEach((pad, i) => wedge(-45 + i * 90 + 1.5, shade(COLORS[pad], this.lit === pad)));
+    wedge(225 + 1.5, '#3A3A3C');
+    circle(cx, cy, inner + 6, P.bg);
+    circle(cx, cy, inner, shade(COLORS[0], this.lit === 0));
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    const s = 9, mid = (big + inner) / 2;
+    const skip = (x, y, fw) => { const d = fw ? 1 : -1; ctx.beginPath(); for (let i = 0; i < 2; i++) { const x0 = x - d * s + d * i * s; ctx.moveTo(x0, y - s * 0.7); ctx.lineTo(x0 + d * s, y); ctx.lineTo(x0, y + s * 0.7); ctx.closePath(); } ctx.fill(); const bx = x + d * s; ctx.fillRect(Math.min(bx, bx + d * 2.5), y - s * 0.7, 2.5, s * 1.4); };
+    skip(cx + mid, cy, true); skip(cx - mid, cy, false);
+    const x = cx, y = cy + mid; ctx.beginPath(); ctx.moveTo(x - s, y - s * 0.7); ctx.lineTo(x - s * 0.1, y); ctx.lineTo(x - s, y + s * 0.7); ctx.closePath(); ctx.fill();
+    ctx.fillRect(x + s * 0.2, y - s * 0.7, s * 0.25, s * 1.4); ctx.fillRect(x + s * 0.7, y - s * 0.7, s * 0.25, s * 1.4);
+    txt(t('MENU'), cx, cy - mid + 5, 13, '#BBBBBB', true, 'center');
+  }
+}
+
+// ───────────────────────── Blocks ─────────────────────────
+const SHAPES = [[[0,1],[1,1],[2,1],[3,1]], [[0,0],[1,0],[0,1],[1,1]], [[1,0],[0,1],[1,1],[2,1]], [[1,0],[2,0],[0,1],[1,1]],
+  [[0,0],[1,0],[1,1],[2,1]], [[0,0],[0,1],[1,1],[2,1]], [[2,0],[0,1],[1,1],[2,1]]];
+const BOX = [4, 2, 3, 3, 3, 3, 3];
+const BCOL = ['#64D2FF', '#FFD60A', '#BF5AF2', '#30D158', '#FF453A', '#0A84FF', '#FF9F0A'];
+class Blocks extends Game {
+  get id() { return 'blocks'; }
+  instructions() { return [t('Wheel: move  ·  Center: turn'), t('Next: drop  ·  Play/Pause: down')]; }
+  reset() {
+    this.cell = Math.max(8, Math.floor((H - 10) / 18)); this.boardY = Math.floor((H - this.cell * 18) / 2); this.boardX = 24;
+    this.board = Array.from({ length: 18 }, () => Array(10).fill(0)); this.lines = 0; this.level = 1; this.next = rnd(7); this.spawn();
+  }
+  spawn() { this.piece = this.next; this.next = rnd(7); this.rot = 0; this.px = Math.floor((10 - BOX[this.piece]) / 2); this.py = 0; this.fall = 0;
+    if (this.collides(this.px, this.py, this.rot) && this.state === PLAYING) this.gameOver(); }
+  cellOf(p, r, i) { let x = SHAPES[p][i][0], y = SHAPES[p][i][1]; const n = BOX[p]; for (let k = 0; k < r; k++) { const nx = n - 1 - y; y = x; x = nx; } return [x, y]; }
+  collides(x0, y0, r) {
+    for (let i = 0; i < 4; i++) { const c = this.cellOf(this.piece, r, i), x = x0 + c[0], y = y0 + c[1];
+      if (x < 0 || x >= 10 || y >= 18) return true; if (y >= 0 && this.board[y][x]) return true; }
+    return false;
+  }
+  turn(d) { const r = (this.rot + d + 4) % 4; for (const kick of [0, -1, 1, -2, 2]) if (!this.collides(this.px + kick, this.py, r)) { this.px += kick; this.rot = r; return; } }
+  onGameKey(key, repeat) {
+    if (key === K.LEFT && !this.collides(this.px - 1, this.py, this.rot)) this.px--;
+    else if (key === K.RIGHT && !this.collides(this.px + 1, this.py, this.rot)) this.px++;
+    else if (isCenter(key) && !repeat) this.turn(1);
+    else if (key === K.PREV && !repeat) this.turn(-1);
+    else if (key === K.PLAY) this.down();
+    else if (key === K.NEXT && !repeat) { while (!this.collides(this.px, this.py + 1, this.rot)) { this.py++; this.score += 2; } this.lock(); }
+  }
+  down() { if (!this.collides(this.px, this.py + 1, this.rot)) { this.py++; this.fall = 0; } else this.lock(); }
+  lock() {
+    for (let i = 0; i < 4; i++) { const c = this.cellOf(this.piece, this.rot, i), y = this.py + c[1]; if (y < 0) { this.gameOver(); return; } this.board[y][this.px + c[0]] = this.piece + 1; }
+    let cleared = 0;
+    for (let y = 17; y >= 0; y--) { if (!this.board[y].every(v => v)) continue; cleared++; this.board.splice(y, 1); this.board.unshift(Array(10).fill(0)); y++; }
+    if (cleared) { host.feedback(); this.score += [0, 100, 300, 500, 800][cleared] * this.level; this.lines += cleared; this.level = 1 + Math.floor(this.lines / 10); }
+    this.spawn();
+  }
+  update(dt) { this.fall += dt; if (this.fall >= Math.max(0.08, 0.8 - (this.level - 1) * 0.07)) { this.fall = 0; this.down(); } }
+  drawGame() {
+    const c = this.cell, bx = this.boardX, by = this.boardY, cellAt = (x, y, col) => fillRR(x + 1, y + 1, x + c - 1, y + c - 1, 2, col);
+    ctx.fillStyle = alpha(P.text, 0.1); ctx.fillRect(bx, by, 10 * c, 18 * c);
+    for (let y = 0; y < 18; y++) for (let x = 0; x < 10; x++) if (this.board[y][x]) cellAt(bx + x * c, by + y * c, BCOL[this.board[y][x] - 1]);
+    if (this.state !== OVER) {
+      let gy = this.py; while (!this.collides(this.px, gy + 1, this.rot)) gy++;
+      for (let i = 0; i < 4; i++) { const cc = this.cellOf(this.piece, this.rot, i); if (gy + cc[1] >= 0) cellAt(bx + (this.px + cc[0]) * c, by + (gy + cc[1]) * c, 'rgba(255,255,255,0.25)'); }
+      for (let i = 0; i < 4; i++) { const cc = this.cellOf(this.piece, this.rot, i); if (this.py + cc[1] >= 0) cellAt(bx + (this.px + cc[0]) * c, by + (this.py + cc[1]) * c, BCOL[this.piece]); }
+    }
+    ctx.strokeStyle = P.text2; ctx.lineWidth = 2; ctx.strokeRect(bx - 1, by - 1, 10 * c + 2, 18 * c + 2);
+    const sx = bx + 10 * c + 24; let y = by + 18;
+    const info = [[t('Next'), ''], ['', ''], ['', ''], ['', ''], [t('Score'), this.score], [t('Lines'), this.lines], [t('Level'), this.level], [t('Best'), Math.max(this.score, host.best(this.id))]];
+    for (const row of info) { if (row[0]) { txt(row[0], sx, y, 15, P.text2, true); txt(String(row[1]), sx + 90, y, 15, P.text, true); } y += 26; }
+    for (let i = 0; i < 4; i++) { const cc = this.cellOf(this.next, 0, i); cellAt(sx + cc[0] * c, by + 30 + cc[1] * c, BCOL[this.next]); }
+  }
+}
+
+// ───────────────────────── Flappy ─────────────────────────
+class Flappy extends Game {
+  get id() { return 'flappy'; }
+  instructions() { return [t('Center: flap'), t('Fly through the gaps between the pipes.')]; }
+  reset() {
+    Object.assign(this, { radius: 11, gravity: 1250, flap: -360, speed: 150, pipeW: 54, gap: 118, spacing: 210, ground: 26, vy: 0, wing: 0 });
+    this.birdX = W * 0.3; this.birdY = (H - this.ground) / 2; this.pipes = [];
+    for (let i = 0; i < 4; i++) this.pipes.push(this.newPipe(W + 80 + i * this.spacing));
+  }
+  newPipe(x) { const min = 40 + this.gap / 2, max = H - this.ground - 40 - this.gap / 2; return [x, min + Math.random() * Math.max(1, max - min), 0]; }
+  onStarted() { this.vy = this.flap; }
+  onGameKey(key, repeat) { if (repeat) return; if (isCenter(key) || key === K.PLAY || key === K.NEXT || key === K.PREV) { this.vy = this.flap; this.wing = 0.15; } }
+  update(dt) {
+    this.vy += this.gravity * dt; this.birdY += this.vy * dt; if (this.wing > 0) this.wing -= dt;
+    if (this.birdY < this.radius) { this.birdY = this.radius; this.vy = 0; }
+    let last = 0;
+    for (const p of this.pipes) { p[0] -= this.speed * dt; last = Math.max(last, p[0]); if (!p[2] && p[0] + this.pipeW < this.birdX) { p[2] = 1; this.score++; host.feedback(); } }
+    if (this.pipes.length && this.pipes[0][0] + this.pipeW < 0) { this.pipes.shift(); this.pipes.push(this.newPipe(last + this.spacing)); }
+    if (this.birdY + this.radius >= H - this.ground) { this.birdY = H - this.ground - this.radius; this.gameOver(); return; }
+    const hit = this.radius * 0.8;
+    for (const p of this.pipes) {
+      if (this.birdX + hit < p[0] || this.birdX - hit > p[0] + this.pipeW) continue;
+      if (this.birdY - hit < p[1] - this.gap / 2 || this.birdY + hit > p[1] + this.gap / 2) { this.gameOver(); return; }
+    }
+  }
+  drawGame() {
+    const sky = ctx.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#4EC0CA'); sky.addColorStop(1, '#B8EDF0');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+    for (const p of this.pipes) {
+      const top = p[1] - this.gap / 2, bottom = p[1] + this.gap / 2;
+      ctx.fillStyle = '#5EBE3B'; ctx.fillRect(p[0], 0, this.pipeW, top); ctx.fillRect(p[0], bottom, this.pipeW, H - this.ground - bottom);
+      ctx.fillStyle = '#3F8F25'; ctx.fillRect(p[0] - 3, top - 14, this.pipeW + 6, 14); ctx.fillRect(p[0] - 3, bottom, this.pipeW + 6, 14);
+    }
+    ctx.fillStyle = '#DED895'; ctx.fillRect(0, H - this.ground, W, this.ground);
+    ctx.fillStyle = '#7CC34B'; ctx.fillRect(0, H - this.ground, W, 5);
+    const r = this.radius, bx = this.birdX, by = this.birdY;
+    ctx.save(); ctx.translate(bx, by); ctx.rotate(clamp(this.vy / 8, -25, 70) * Math.PI / 180); ctx.translate(-bx, -by);
+    circle(bx, by, r, '#FFCC33'); circle(bx + r * 0.45, by - r * 0.3, r * 0.35, '#FFFFFF'); circle(bx + r * 0.55, by - r * 0.3, r * 0.15, '#000000');
+    ctx.fillStyle = '#FF7A33'; ctx.fillRect(bx + r * 0.6, by + r * 0.05, r * 0.75, r * 0.35);
+    const wy = this.wing > 0 ? -r * 0.45 : r * 0.1;
+    ctx.fillStyle = '#F2E6B3'; ctx.beginPath(); ctx.ellipse(bx - r * 0.5, by + wy + r * 0.25, r * 0.4, r * 0.25, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.font = font(36, true); ctx.textAlign = 'center';
+    ctx.fillStyle = '#000'; ctx.fillText(String(this.score), W / 2 + 2, 48);
+    ctx.fillStyle = '#FFF'; ctx.fillText(String(this.score), W / 2, 46);
+  }
+}
+
+// ───────────────────────── covers from the Y1 ─────────────────────────
+const coverCache = new Map();
+function cover(path) { // an Image (maybe still loading or broken), cached
+  if (!coverCache.has(path)) {
+    const img = new Image(); img.ok = false;
+    img.onload = () => { img.ok = true; }; img.src = '/api/art?path=' + encodeURIComponent(path);
+    coverCache.set(path, img);
+  }
+  return coverCache.get(path);
+}
+function drawCover(path, x, y, size) {
+  const img = path && cover(path);
+  if (img && img.ok) { ctx.save(); rr(x, y, size, size, 4); ctx.clip(); ctx.drawImage(img, x, y, size, size); ctx.restore(); }
+  else { fillRR(x, y, x + size, y + size, 4, 'rgba(128,128,128,0.2)'); txt('♪', x + size / 2, y + size / 2 + 14, 40, 'rgba(128,128,128,0.6)', false, 'center'); }
+}
+
+// ───────────────────────── Which Came First? ─────────────────────────
+const yearOf = s => { const m = /^\s*(\d{4})/.exec(s.y || ''); const v = m ? +m[1] : 0; return v >= 1900 && v <= 2100 ? v : 0; };
+class Older extends Game {
+  get id() { return 'older'; }
+  instructions() { return [t('Which song came out first?'), t('Wheel: choose  ·  Center: answer')]; }
+  cannotPlay() {
+    if (!LIB.songs) return t(LIB.loading ? 'Loading your music...' : 'Open this page from the Y1\'s web server to play with your music.');
+    return this.songs().length < 2 ? t('Your songs need a year in their tags to play this.') : null;
+  }
+  songs() { return this._songs || (this._songs = host.library().filter(s => yearOf(s) > 0)); }
+  reset() { this.lives = 3; this.round = 0; this.pair = [null, null]; }
+  onStarted() { this.lives = 3; this.round = 0; this.nextPair(); }
+  nextPair() {
+    const songs = this.songs(); this.round++; this.revealed = false; this.choice = 0;
+    for (let tries = 0; tries < 200; tries++) {
+      const a = songs[rnd(songs.length)], b = songs[rnd(songs.length)];
+      if (yearOf(a) === yearOf(b)) continue;
+      if (tries < 150 && a.a && a.a === b.a) continue;
+      this.pair = [a, b]; break;
+    }
+    if (!this.pair[0] || yearOf(this.pair[0]) === yearOf(this.pair[1])) { this.gameOver(); return; }
+    this.years = [yearOf(this.pair[0]), yearOf(this.pair[1])];
+    this.pair.forEach(s => cover(s.p));
+  }
+  onGameKey(key) {
+    if (this.revealed) return;
+    if (key === K.LEFT || key === K.PREV) this.choice = 0;
+    else if (key === K.RIGHT || key === K.NEXT) this.choice = 1;
+    else if (isCenter(key)) this.answer();
+  }
+  answer() {
+    host.feedback(); this.revealed = true; this.revealTimer = 1.6;
+    this.right = this.years[this.choice] < this.years[1 - this.choice];
+    if (this.right) this.score++; else this.lives--;
+  }
+  click(x, y) {
+    if (this.state !== PLAYING) return super.click(x, y);
+    if (this.revealed || y < 56) return;
+    this.choice = x < W / 2 ? 0 : 1; this.answer();
+  }
+  update(dt) { if (!this.revealed) return; this.revealTimer -= dt; if (this.revealTimer <= 0) { if (this.lives <= 0) this.gameOver(); else this.nextPair(); } }
+  drawGame() {
+    let hearts = ''; for (let i = 0; i < 3; i++) hearts += i < this.lives ? '●' : '○';
+    this.hud(fmt('Score: %d', this.score), hearts);
+    if (!this.pair[0]) return;
+    const q = this.revealed ? t(this.right ? 'Right!' : 'Wrong!') : t('Which one came out first?');
+    txt(q, W / 2, 44, 17, this.revealed ? (this.right ? '#30D158' : '#FF453A') : P.text, true, 'center');
+    const cardW = (W - 36) / 2, top = 56, cardH = H - top - 8;
+    for (let i = 0; i < 2; i++) {
+      const l = 12 + i * (cardW + 12), s = this.pair[i];
+      fillRR(l, top, l + cardW, top + cardH, 8, alpha(P.text, 0.08));
+      if (i === this.choice && this.state === PLAYING) { ctx.strokeStyle = P.accent; ctx.lineWidth = 3; rr(l, top, cardW, cardH, 8); ctx.stroke(); }
+      const size = 130, cx = l + cardW / 2, cy = top + 10;
+      drawCover(s.p, cx - size / 2, cy, size);
+      txt(ellipsize(s.t, 15, true, cardW - 16), cx, cy + size + 22, 15, P.text, true, 'center');
+      txt(ellipsize(s.a, 13, false, cardW - 16), cx, cy + size + 40, 13, P.text2, false, 'center');
+      if (this.revealed) txt(String(this.years[i]), cx, cy + size + 70, 24, this.years[i] < this.years[1 - i] ? '#30D158' : '#FF453A', true, 'center');
+    }
+  }
+}
+
+// ───────────────────────── Music Quiz ─────────────────────────
+// As on the Y1: 5 rounds of 8 questions, 3 lives, 10 s each. A clip of the song plays (from 20-70 % in) and
+// the question is about its title, artist, album, year, genre or album cover. $100 per right answer.
+const QT = { TITLE: 0, ARTIST: 1, ALBUM: 2, YEAR: 3, GENRE: 4, COVER: 5 };
+const QUIZ_TIME = 10, PER_ROUND = 8, ROUNDS = 5;
+class Quiz extends Game {
+  get id() { return 'quiz'; }
+  instructions() { return [t('Listen to the clip and pick the answer'), t('5 rounds of 8 questions, 3 lives.')]; }
+  pool() {
+    return this._pool || (this._pool = host.library().filter(s => !/\/(Audiobooks|Podcasts)\//.test('/' + s.p) && s.t && s.t.trim()));
+  }
+  cannotPlay() {
+    if (!LIB.songs) return t(LIB.loading ? 'Loading your music...' : 'Open this page from the Y1\'s web server to play with your music.');
+    return this.pool().length < 4 ? t('Not enough songs in your library for Music Quiz.') : null;
+  }
+  scoreText() { return t('Score') + ': $' + (this.score * 100).toLocaleString('en-US'); }
+  bestText() { return t('Best') + ': $' + (host.best(this.id) * 100).toLocaleString('en-US'); }
+  overTitle() { return this.won ? t('You beat all 5 rounds!') : t('Game Over!'); }
+  reset() { this.lives = 3; this.round = 1; this.q = 0; this.phase = 'q'; this.options = []; this.won = false; this.stopClip(); }
+  onStarted() { this.lives = 3; this.round = 1; this.q = 0; this.won = false; this.next(); }
+  field(s, type) {
+    switch (type) {
+      case QT.ARTIST: return (s.a || '').trim(); case QT.ALBUM: case QT.COVER: return (s.al || '').trim();
+      case QT.YEAR: { const y = yearOf(s); return y ? String(y) : ''; } case QT.GENRE: return (s.g || '').trim();
+      default: return (s.t || '').trim();
+    }
+  }
+  distinct(type) { return new Set(this.pool().map(s => this.field(s, type).toLowerCase()).filter(Boolean)).size; }
+  next() {
+    if (this.q >= PER_ROUND) {
+      if (this.round >= ROUNDS) { this.won = true; this.stopClip(); this.gameOver(); return; }
+      this.phase = 'round'; this.stopClip(); this.options = [t('Continue')]; this.focus = 0; return;
+    }
+    this.q++; this.phase = 'q'; this.answered = false; this.result = null; this.focus = 0;
+    const types = [QT.TITLE];
+    for (const ty of [QT.ARTIST, QT.ALBUM, QT.YEAR, QT.GENRE]) if (this.distinct(ty) >= 4) types.push(ty);
+    if (this.distinct(QT.COVER) >= 3) types.push(QT.COVER);
+    this.type = types[rnd(types.length)];
+    let pool = this.pool().filter(s => this.field(s, this.type)); if (!pool.length) pool = this.pool();
+    this.correct = pool[rnd(pool.length)]; this.correctText = this.field(this.correct, this.type);
+    const title = '“' + this.correct.t + '”';
+    this.prompt = { [QT.ARTIST]: fmt('Which artist released %s?', title), [QT.ALBUM]: fmt('Which album is %s from?', title),
+      [QT.YEAR]: fmt('What year was %s released?', title), [QT.GENRE]: fmt('What genre is %s?', title),
+      [QT.COVER]: t("Which cover matches this song's album?") }[this.type] || t('What song is playing?');
+    if (this.type === QT.COVER) { // three covers of different albums
+      const reps = new Map(); for (const s of shuffle(pool.slice())) { const k = this.field(s, QT.COVER).toLowerCase(); if (!reps.has(k)) reps.set(k, s); }
+      const opts = [this.correct];
+      for (const s of reps.values()) { if (opts.length >= 3) break; if (!opts.some(o => this.field(o, QT.COVER).toLowerCase() === this.field(s, QT.COVER).toLowerCase())) opts.push(s); }
+      this.options = shuffle(opts); this.options.forEach(s => cover(s.p));
+    } else {
+      const opts = [this.correctText];
+      for (const s of shuffle(pool.slice())) { if (opts.length >= 4) break; const v = this.field(s, this.type); if (v && !opts.some(o => o.toLowerCase() === v.toLowerCase())) opts.push(v); }
+      while (opts.length < 4 && pool.length) opts.push(this.field(pool[rnd(pool.length)], this.type));
+      this.options = shuffle(opts);
+    }
+    this.timeLeft = QUIZ_TIME; this.timerOn = false; this.playClip(this.correct);
+  }
+  playClip(song) {
+    this.stopClip();
+    const a = new Audio('/api/file?path=' + encodeURIComponent(song.p)); this.audio = a; a.loop = true;
+    a.addEventListener('loadedmetadata', () => {
+      const d = a.duration || 0;
+      if (d > 20) { const maxStart = d - 12; a.currentTime = maxStart * 0.2 + Math.random() * Math.max(1, maxStart * 0.5); }
+    });
+    a.addEventListener('playing', () => { if (this.audio === a) this.timerOn = true; });
+    a.play().catch(() => {});
+    this.clipWait = 4; // over slow Wi-Fi the clock starts when the clip does (at the latest after 4 s)
+  }
+  stopClip() { if (this.audio) { try { this.audio.pause(); this.audio.src = ''; } catch (e) {} this.audio = null; } }
+  onPause() { if (this.audio) this.audio.pause(); }
+  onResume() { if (this.audio && this.phase === 'q' && !this.answered) this.audio.play().catch(() => {}); }
+  onLeave() { this.stopClip(); }
+  choose(i) {
+    if (this.phase === 'round') { host.feedback(); this.round++; this.q = 0; this.next(); return; }
+    if (this.answered) return;
+    host.feedback(); this.answered = true; this.stopClip(); this.focus = i;
+    const sel = i == null ? null : this.type === QT.COVER ? this.field(this.options[i], QT.COVER) : this.options[i];
+    const ok = sel != null && sel.toLowerCase() === (this.correctText || '').toLowerCase();
+    if (ok) this.score++; else this.lives--;
+    this.result = ok; this.resultTimer = 1.2;
+  }
+  onGameKey(key, repeat) {
+    const n = this.options.length;
+    if (key === K.LEFT || key === K.PREV) this.focus = (this.focus - 1 + n) % n;
+    else if (key === K.RIGHT || key === K.NEXT) this.focus = (this.focus + 1) % n;
+    else if (isCenter(key) && !repeat) this.choose(this.focus);
+  }
+  update(dt) {
+    if (this.phase !== 'q') return;
+    if (this.answered) { this.resultTimer -= dt; if (this.resultTimer <= 0) { if (this.lives <= 0) this.gameOver(); else this.next(); } return; }
+    if (!this.timerOn) { this.clipWait -= dt; if (this.clipWait <= 0) this.timerOn = true; return; }
+    this.timeLeft -= dt; if (this.timeLeft <= 0) { this.timeLeft = 0; this.choose(null); }
+  }
+  optionRects() {
+    if (this.phase === 'q' && this.type === QT.COVER) { const w = (W - 48) / 3; return this.options.map((_, i) => [12 + i * (w + 12), 96, w, 244]); }
+    return this.options.map((_, i) => [24, 100 + i * 60, W - 48, 50]);
+  }
+  click(x, y) {
+    if (this.state !== PLAYING) return super.click(x, y);
+    this.optionRects().forEach((r, i) => { if (x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]) this.choose(i); });
+  }
+  drawGame() {
+    txt('$' + (this.score * 100).toLocaleString('en-US'), 8, 17, 15, P.text, true);
+    txt(fmt('Round %d', this.round) + '  ·  ' + Math.max(1, this.q) + '/' + PER_ROUND, W / 2, 17, 15, P.text2, true, 'center');
+    let hearts = ''; for (let i = 0; i < 3; i++) hearts += (i < this.lives ? '♥' : '♡') + (i < 2 ? ' ' : '');
+    txt(hearts, W - 8, 17, 15, '#FF453A', true, 'right');
+    fillRR(8, 26, W - 8, 30, 2, alpha(P.text, 0.12));
+    if (this.phase === 'q' && this.state !== READY) fillRR(8, 26, 8 + (W - 16) * (this.timeLeft / QUIZ_TIME), 30, 2, P.accent);
+    if (this.state === READY || !this.options.length) return;
+    let prompt = this.prompt;
+    if (this.phase === 'round') prompt = fmt('Round %d Complete!', this.round);
+    else if (this.answered) prompt = this.result ? '✓ ' + t('Correct!') : '✕ ' + t('It was: ') + this.correctText;
+    const col = this.phase === 'q' && this.answered ? (this.result ? '#30D158' : '#FF453A') : P.text;
+    wrap(prompt, 17, W - 40).slice(0, 2).forEach((line, i, arr) => txt(i === 1 && arr.length > 1 ? ellipsize(line, 17, true, W - 40) : line, W / 2, (arr.length > 1 ? 52 : 62) + i * 22, 17, col, true, 'center'));
+    const rects = this.optionRects();
+    rects.forEach((r, i) => {
+      const [x, y, w, h] = r, focused = i === this.focus;
+      let fill = focused ? P.accent : alpha(P.text, 0.08), fg = focused ? '#FFFFFF' : P.text;
+      if (this.phase === 'q' && this.answered) {
+        const v = this.type === QT.COVER ? this.field(this.options[i], QT.COVER) : this.options[i];
+        if (v.toLowerCase() === this.correctText.toLowerCase()) { fill = '#30D158'; fg = '#FFFFFF'; }
+        else if (focused) { fill = '#FF453A'; fg = '#FFFFFF'; }
+      }
+      if (this.phase === 'q' && this.type === QT.COVER) {
+        fillRR(x, y, x + w, y + h, 12, fill);
+        const s = Math.min(w - 12, h - 12); drawCover(this.options[i].p, x + (w - s) / 2, y + (h - s) / 2, s);
+      } else {
+        fillRR(x, y, x + w, y + h, h / 2, fill);
+        if (focused) circle(x + 22, y + h / 2, 6, fg);
+        txt(ellipsize(this.options[i], 17, true, w - 60), x + 40, y + h / 2 + 6, 17, fg, true);
+      }
+    });
+  }
+}
+
+// ───────────────────────── the games list (as on the Y1: Extras > Games) ─────────────────────────
+const GAMES = [
+  { id: 'quiz', name: 'Music Quiz', em: '🎵', make: () => new Quiz(), music: true },
+  { id: 'bricks', name: 'Bricks', em: '🧱', make: () => new Bricks() },
+  { id: 'snake', name: 'Snake', em: '🐍', make: () => new Snake() },
+  { id: 'simon', name: 'Simon', em: '🔴', make: () => new Simon() },
+  { id: 'blocks', name: 'Blocks', em: '🟦', make: () => new Blocks() },
+  { id: 'flappy', name: 'Flappy', em: '🐤', make: () => new Flappy() },
+  { id: 'older', name: 'Which Came First?', em: '📅', make: () => new Older(), music: true }
+];
+let menuIndex = store.get('menu', 0) % GAMES.length, game = null;
+const LIB = { songs: null, loading: false };
+
+function openGame(i) {
+  if (game) game.onLeave();
+  menuIndex = i; store.set('menu', i);
+  game = GAMES[i].make(); renderList();
+}
+function closeGame() { if (game) game.onLeave(); game = null; renderList(); }
+
+function menuKey(key, repeat) {
+  if (key === K.LEFT || key === K.PREV) { menuIndex = (menuIndex - 1 + GAMES.length) % GAMES.length; host.feedback(); renderList(); }
+  else if (key === K.RIGHT || key === K.NEXT) { menuIndex = (menuIndex + 1) % GAMES.length; host.feedback(); renderList(); }
+  else if (isCenter(key) && !repeat) { host.feedback(); openGame(menuIndex); }
+}
+function drawMenu() { // a classic Y1 list: title bar, rows on the left, a card on the right
+  ctx.fillStyle = P.bg; ctx.fillRect(0, 0, W, H);
+  txt(t('Games'), 10, 21, 17, P.text, true);
+  ctx.fillStyle = alpha(P.text2, 0.4); ctx.fillRect(0, 30, W, 1);
+  const rowH = 38, top = 38;
+  GAMES.forEach((g, i) => {
+    const y = top + i * rowH, on = i === menuIndex;
+    if (on) fillRR(4, y, 236, y + rowH - 4, 8, P.accent);
+    txt(ellipsize(t(g.name), 20, false, 200), 14, y + 24, 20, on ? '#FFFFFF' : P.text, false);
+    if (on) txt('›', 226, y + 24, 22, '#FFFFFF', true, 'right');
+  });
+  const g = GAMES[menuIndex], cx = 362;
+  fillRR(250, 40, 474, 352, 14, alpha(P.text, 0.07));
+  ctx.font = '64px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = P.text; ctx.fillText(g.em, cx, 150);
+  wrap(t(g.name), 20, 200).slice(0, 2).forEach((l, i) => txt(l, cx, 196 + i * 24, 20, P.text, true, 'center'));
+  const b = host.best(g.id);
+  if (b > 0) txt(g.id === 'quiz' ? t('Best') + ': $' + (b * 100).toLocaleString('en-US') : fmt('Best: %d', b), cx, 256, 15, P.text2, false, 'center');
+  if (g.music && !LIB.songs) wrap(t('The music games use your Y1\'s songs: open this page from its web server.'), 12, 200).slice(0, 4).forEach((l, i) => txt(l, cx, 284 + i * 16, 12, P.text2, false, 'center'));
+  else txt(t('Center: start'), cx, 330, 13, P.text2, false, 'center');
+}
+
+// ───────────────────────── input ─────────────────────────
+function press(key, repeat) {
+  if (game) game.handleKey(key, !!repeat); else menuKey(key, !!repeat);
+}
+const KEYMAP = { ArrowLeft: K.LEFT, ArrowUp: K.LEFT, ArrowRight: K.RIGHT, ArrowDown: K.RIGHT, Enter: K.CENTER, ' ': K.CENTER,
+  Escape: K.BACK, Backspace: K.BACK, a: K.PREV, A: K.PREV, d: K.NEXT, D: K.NEXT, s: K.PLAY, S: K.PLAY };
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && e.key !== 'Escape') return;
+  const k = KEYMAP[e.key]; if (k == null) return;
+  e.preventDefault(); press(k, e.repeat);
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && game) game.pause(); });
+cv.addEventListener('click', e => {
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
+  if (game) { game.click(x, y); return; }
+  const i = Math.floor((y - 38) / 38);
+  if (x < 240 && i >= 0 && i < GAMES.length) { if (i === menuIndex) openGame(i); else { menuIndex = i; host.feedback(); renderList(); } }
+  else if (x >= 250) openGame(menuIndex);
+});
+
+// the click wheel: drag around it to spin (one step per 15°), click its four sides, mouse wheel spins too
+(function wheel() {
+  const svg = document.getElementById('wheel'), ring = document.getElementById('ring'), hit = document.getElementById('hit'), centerBtn = document.getElementById('centerBtn');
+  const pt = e => { const r = svg.getBoundingClientRect(); return [(e.clientX - r.left) * 260 / r.width - 130, (e.clientY - r.top) * 260 / r.height - 130]; };
+  const ang = p => Math.atan2(p[1], p[0]) * 180 / Math.PI;
+  let drag = null;
+  const flash = zone => { // highlight the pressed side
+    const a0 = { right: -45, bottom: 45, left: 135, top: 225 }[zone], R = 126, r = 50, rad = d => d * Math.PI / 180;
+    const p = (rr_, d) => (130 + rr_ * Math.cos(rad(d))).toFixed(1) + ',' + (130 + rr_ * Math.sin(rad(d))).toFixed(1);
+    hit.setAttribute('d', `M${p(r, a0)} L${p(R, a0)} A${R},${R} 0 0 1 ${p(R, a0 + 90)} L${p(r, a0 + 90)} A${r},${r} 0 0 0 ${p(r, a0)}Z`);
+    hit.classList.add('on'); clearTimeout(flash.t); flash.t = setTimeout(() => hit.classList.remove('on'), 140);
+  };
+  ring.addEventListener('pointerdown', e => {
+    e.preventDefault(); ring.setPointerCapture(e.pointerId); ring.classList.add('drag');
+    drag = { last: ang(pt(e)), acc: 0, moved: false, p: pt(e) };
+  });
+  ring.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const a = ang(pt(e)); let d = a - drag.last; if (d > 180) d -= 360; if (d < -180) d += 360;
+    drag.last = a; drag.acc += d;
+    while (Math.abs(drag.acc) >= 15) { drag.moved = true; const cw = drag.acc > 0; drag.acc -= cw ? 15 : -15; press(cw ? K.RIGHT : K.LEFT, false); }
+  });
+  const end = e => {
+    if (!drag) return; ring.classList.remove('drag');
+    if (!drag.moved) {
+      const p = drag.p, a = (ang(p) + 360) % 360;
+      const zone = a >= 315 || a < 45 ? 'right' : a < 135 ? 'bottom' : a < 225 ? 'left' : 'top';
+      flash(zone); press({ right: K.NEXT, bottom: K.PLAY, left: K.PREV, top: K.BACK }[zone], false);
+    }
+    drag = null;
+  };
+  ring.addEventListener('pointerup', end); ring.addEventListener('pointercancel', () => { drag = null; ring.classList.remove('drag'); });
+  centerBtn.addEventListener('pointerdown', e => { e.preventDefault(); press(K.CENTER, false); });
+  let wheelAcc = 0;
+  svg.addEventListener('wheel', e => { e.preventDefault(); wheelAcc += e.deltaY; while (Math.abs(wheelAcc) >= 40) { press(wheelAcc > 0 ? K.RIGHT : K.LEFT, false); wheelAcc -= Math.sign(wheelAcc) * 40; } }, { passive: false });
+})();
+
+// ───────────────────────── side panel ─────────────────────────
+function renderList() {
+  const el = document.getElementById('list'); el.innerHTML = '';
+  GAMES.forEach((g, i) => {
+    const b = document.createElement('button'), best = host.best(g.id);
+    if ((game ? GAMES.findIndex(x => x.id === game.id) : menuIndex) === i) b.className = 'on';
+    const em = document.createElement('span'); em.className = 'em'; em.textContent = g.em;
+    const name = document.createElement('span'); name.textContent = t(g.name);
+    const small = document.createElement('small');
+    small.textContent = best > 0 ? (g.id === 'quiz' ? t('Record') + ': $' + (best * 100).toLocaleString('en-US') : t('Record') + ': ' + best) : ' ';
+    name.appendChild(small); b.append(em, name);
+    b.onclick = () => { openGame(i); cv.focus && cv.focus(); };
+    el.appendChild(b);
+  });
+}
+function renderStatic() {
+  document.querySelectorAll('[data-t]').forEach(el => {
+    const em = el.textContent.match(/^\S+\s/); const word = t(el.dataset.t);
+    el.textContent = el.closest('.nav') && em ? em[0] + word : word;
+  });
+  document.getElementById('intro').textContent = t('Web versions of InniClassic\'s mini-games, to try them on the computer. They play like on the Y1: same rules, same buttons.');
+  const rows = [
+    [t('Wheel'), ['←', '→'], t('or spin the wheel / mouse wheel')],
+    [t('Center button'), ['Intro', 'Espacio'], t('or click the screen')],
+    [t('Back (MENU)'), ['Esc', '⌫']],
+    [t('Previous') + ' ⏮', ['A']], [t('Next') + ' ⏭', ['D']], [t('Play/Pause') + ' ⏯', ['S']]
+  ];
+  const tb = document.getElementById('keys'); tb.innerHTML = '';
+  for (const [label, keys, note] of rows) {
+    const tr = tb.insertRow(), a = tr.insertCell(), b = tr.insertCell(); a.textContent = label;
+    keys.forEach(k => { const kb = document.createElement('kbd'); kb.textContent = LANG_ES ? k : k.replace('Intro', 'Enter').replace('Espacio', 'Space'); b.appendChild(kb); });
+    if (note) { const s = document.createElement('div'); s.style.cssText = 'color:var(--dim);font-size:12px;margin-top:2px'; s.textContent = note; b.appendChild(s); }
+  }
+  const sel = document.getElementById('palette'); sel.innerHTML = '';
+  for (const [k, p] of Object.entries(PALETTES)) { const o = new Option(t(p.name), k); o.selected = p === P; sel.add(o); }
+  sel.onchange = () => { P = PALETTES[sel.value]; store.set('palette', sel.value); sel.blur(); };
+  const snd = document.getElementById('sound'); snd.checked = store.get('sound', true); snd.onchange = () => { store.set('sound', snd.checked); snd.blur(); };
+}
+function setMusicNote(text, ok) { const n = document.getElementById('musicNote'); n.textContent = text; n.className = 'musicnote' + (ok ? ' ok' : ''); }
+
+// ───────────────────────── the Y1's library (only when served by its web server) ─────────────────────────
+async function loadLibrary() {
+  if (!/^http:$/.test(location.protocol)) { setMusicNote(t('The music games use your Y1\'s songs: open this page from its web server.')); return; }
+  LIB.loading = true; setMusicNote(t('Loading your music...'));
+  try {
+    const c = new AbortController(), timer = setTimeout(() => c.abort(), 15000);
+    const r = await fetch('/api/library', { signal: c.signal }); clearTimeout(timer);
+    if (!r.ok) throw new Error(r.status);
+    const songs = await r.json(); if (!Array.isArray(songs)) throw new Error('format');
+    LIB.songs = songs; document.getElementById('nav').hidden = false;
+    setMusicNote(fmt('Playing with your Y1\'s music (%d songs).', songs.length), true);
+  } catch (e) {
+    setMusicNote(t('The music games use your Y1\'s songs: open this page from its web server.'));
+  }
+  LIB.loading = false;
+}
+
+// ───────────────────────── loop ─────────────────────────
+let lastT = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  fitCanvas();
+  if (game) { if (game.state === PLAYING) game.update(dt); game.draw(); } else drawMenu();
+  requestAnimationFrame(loop);
+}
+renderStatic(); renderList(); loadLibrary();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
