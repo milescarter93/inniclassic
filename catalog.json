@@ -66,44 +66,73 @@
       "name": "Music Quiz",
       "emoji": "🎵",
       "music": true,
-      "inApp": true
+      "inApp": true,
+      "description": {
+        "es": "Suena un fragmento de tus canciones: adivina título, artista, álbum, año o portada. 5 rondas, 3 vidas.",
+        "en": "A clip of your songs plays: guess the title, artist, album, year or cover. 5 rounds, 3 lives."
+      }
     },
     {
       "id": "bricks",
       "name": "Bricks",
       "emoji": "🧱",
-      "inApp": true
+      "inApp": true,
+      "description": {
+        "es": "Rompe el muro con la pala y la bola. La rueda mueve la pala; cada muro superado acelera la bola.",
+        "en": "Break the wall with the paddle and the ball. The wheel moves the paddle; each wall cleared speeds it up."
+      }
     },
     {
       "id": "snake",
       "name": "Snake",
       "emoji": "🐍",
-      "inApp": true
+      "inApp": true,
+      "description": {
+        "es": "Gira con la rueda, come y crece. Cuidado con las paredes y con tu propia cola.",
+        "en": "Turn with the wheel, eat and grow. Mind the walls and your own tail."
+      }
     },
     {
       "id": "simon",
       "name": "Wheel Says",
       "emoji": "🎡",
-      "inApp": true
+      "inApp": true,
+      "description": {
+        "es": "Memoriza la secuencia de colores de la rueda y repítela con sus botones. Cada ronda, un paso más.",
+        "en": "Remember the colour sequence on the wheel and repeat it with its buttons. One more step every round."
+      }
     },
     {
       "id": "blocks",
       "name": "Block Puzzle",
       "emoji": "🧩",
-      "inApp": true
+      "inApp": true,
+      "description": {
+        "es": "Encaja las piezas que caen y completa filas. Cada 10 filas, más velocidad.",
+        "en": "Fit the falling pieces and complete rows. Every 10 rows, more speed."
+      }
     },
     {
       "id": "flappy",
       "name": "Birdy",
       "emoji": "🐦",
-      "inApp": true
+      "inApp": true,
+      "description": {
+        "es": "Pixel art: aletea con el botón central entre las columnas del oasis.",
+        "en": "Pixel art: flap with the center button between the oasis columns."
+      }
     },
     {
       "id": "older",
       "name": "Which Came First?",
       "emoji": "📅",
       "music": true,
-      "inApp": true
+      "inApp": true,
+      "description": {
+        "es": "Dos canciones de tu biblioteca: ¿cuál salió antes? Tres fallos y se acaba.",
+        "en": "Two songs from your library: which came out first? Three mistakes and it's over."
+      }
     }
-  ]
+  ],
+  "version": "1.0-beta"
 }
